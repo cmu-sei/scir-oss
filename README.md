@@ -26,6 +26,8 @@ Open Source Software Project, Product, Protection, and Policy Report
 | Analyze Package(s) | ------> | Make an OSS-P4 | ------> | Publish OSS-P4/R |
 | with Phylum.io.    |         | Report         |         | to Confluence    |
 +--------------------+         +================+         +==================+
+
+* --> (progresses from (left) to (right))
         (1)                            (2)                         (3)
 ```
 (1) See ```docs/``` folder in this repo for examples on various methods to perform analysis
@@ -62,7 +64,8 @@ $ ./scir-oss.sh -h
   OPTIONS
 
   -c:  set number of days for cache staleness check (default: 2)
-  -f:  force local cache rebuild of external Github repo and Phylum project data (overrides -p)
+  -f:  force rebuild (overrides -p) of all or specific(s) caches, scores, reports or other data
+       comma separate being 'all', or one or more of: cards,caches,deps,subdeps,meta,crit,scard,hcheck,scores,issues,job
   -h:  this message (and exit)
   -l:  log output messages to file of the form 'run-YYYYMMDD-HHMMSS.log' in 'logs' folder
   -o:  build only the BoE (i.e., do nothing else but that, and exit. see -B)
@@ -74,10 +77,26 @@ $ ./scir-oss.sh -h
   -D:  set depth on dependencies to run scorecards (default: 0, top component only, or 'all' (no limit))
   -G:  set Github project site (REQUIRED)
   -L:  make one or more subreports and exit (default 'all')
+  -O:  offline - do not use networking (some capabilities will be degraded) relies on cached data
   -P:  set Phylum.io project name (default: same as -C) (REQUIRED)
   -U:  use package URI spec rather than a Phylum.io project name (e.g., npm:@babel/highlight:^7.18.6)
   -V:  display version (and exit)
   -W:  watch docker scorecards run not to exceed time limit (default: 300 seconds)
+
+  BUILD FLAGS (-f 'flag1[,flag2,...]')
+
+  all:		acts as if all BUILD FLAGS are true, essentially rebuilds everything from scratch (logs retained)
+  caches:	cached data from github (home page, contributors, SBOM), phylum project data
+  cards:	forces all scorecards and checks to run and retry previous error, no cached data is changed
+  crit:		forces OSSF Criticality Score to refresh
+  deps:		rebuilds all primary dependencies
+  hcheck:	forces MITRE Hipcheck to refresh
+  issues:	rebuilds phylum issues from all dependencies
+  job:		rechecks phylum analysis job for updates
+  meta:		forces GitHub Metadata to refresh
+  scard:	forces OSSF Scorecard to refresh
+  scores:	rebuilds coalesced scores from all scorecards and checks
+  subdeps:	rebuilds all tertiary and deeper dependencies
 ```
 Explaination: TBD
 
@@ -172,7 +191,7 @@ drwxr-xr-x 1 user group    2080 mmm dd hh:mm oldjobs
 ```
 
 #### Explaination: The files
-##### Caches
+##### Cache files
 
 - ```_gh.html``` is the html page of the repo used to find badges and other information
 - ```_ghapi.json``` is the GitHub API summary data for the GitHub Project (e.g. ```:repo``` in ```:owner/:repo```)
@@ -189,16 +208,18 @@ drwxr-xr-x 1 user group    2080 mmm dd hh:mm oldjobs
 
 ```
 +================+         +===============+         +============+                 +---> *_ghapi.json
-|                | ------> |               | ------> |            |                 |
+|                | <------ |               | <------ |            |                 |
 | _dep_prds.json |         | _dep_prjs.csv |    |    |    deps.d/ |----:owner/:repo-+---> *.sc.json, *.cs.json
 |                |         |               |    |    |            |                 |
 +================+         +===============+    |    +============+                 +---> *.hc.json
                                                 |
                                                 |    +============+
                                                 |    |            |
-                                                +--> | subdeps.d/ |-----:purl-----> *_deps.json
+                                                +--- | subdeps.d/ |-----:purl-----> *_deps.json
                                                      |            |
                                                      +============+
+* <-- ((right) depends on (left))
+* --- :(argument) --> ((argument) used to produce (file(s)) (see Interfaces below))
 ```
 
 The ***world*** starts with ```_dep_prds.json``` (above), here all the primary dependencies are contained within this file using the following:
@@ -206,7 +227,7 @@ The ***world*** starts with ```_dep_prds.json``` (above), here all the primary d
 Example: ```"golang:github.com/golang/protobuf:v1.4.2","https://github.com/golang/protobuf"```
 
 This list of component IDs (```.id```) and home CVS repos (```.repoUrl```) are used to populate ```_dep_prjs.csv``` having the form:
-- column 1: level of a dependency graph the component was found (0 being root, 1 being direct decenant of 0, and so on)
+- column 1: level of a dependency graph the component was found (0 being root, 1 being direct descendant of 0, and so on)
 - column 2: id (```.id``` from ```_dep_prds.json```)
 - column 3: dependency which is essentially column 2 cut at the first ```:``` and everything after (it is a mess and is not used and likely garbage)
 - column 4: home repo confirmed either by ```_dep_prds.json``` or discovered by digging on the ecosystem package manager (e.g., maven, golang, npm) (not 100% complete for all ecosystems and possible package managers)
@@ -232,6 +253,68 @@ is mangled to
 - ```golang:google.golang.org___protobuf:v1.28.1```
 
 These folders contain the level 2 and beyond package dependencies and end in ```_deps.json```
+
+##### Interfaces and files (by files)
+* ```_gh.html```
+  - command line tool: ```curl```
+  - URI: ```github.com/:owner/:repo```
+  - Purpose: to scrape page to obtain potential badges for SLSA.
+* ```_ghapi.json```
+  - command line tool: ```curl```
+  - URI: ```api.github.com/repos/:owner/:repo```
+  - Purpose: to obtain various aspects of the comonent project hosted on GitHub for the report.
+* ```_ghapi_contrib.json```
+  - command line tool: ```curl```
+  - URI: ```api.github.com/repos/:owner/:repo/contributors```
+  - Purpose: to obtain the list and count of contributors to the hoste GitHub project.
+* ```_ghapi_sbom.json```
+  - command line tool: ```curl```
+  - URI: ```api.github.com/repos/:owner/:repo/dependency-graph/sbom```
+  - Purpose: to obtain the project's product's SBOM.
+* ```phylum_prjs.json```
+  - command line tool: ```curl```
+  - URI: ```api.phylum.io/api/v0/projects/```
+  - Purpose: to obtain the list of all the phylum.io projects submitted to phylum.io for analysis.
+* ```_dep_prds.json```
+  - command line tool: ```curl```
+  - URI: ```api.phylum.io/api/v0/data/[projects|packages]/:prjid```
+  - Purpose: to obtain phylum.io primary project or primary package details and its dependencies.
+* ```_dep_prjs.csv```
+  - command line tool: ```curl```
+  - URI: ```api.phylum.io/api/v0/data/packages/:puri```
+  - Purpose: to obtain phylum.io sub-dependency package details and, further, its dependencies.
+  - command line tool: ```curl```
+  - URI: ```<site>/:repoUrl```
+    - where ```<site>``` is one of ```google.golang.org```, ```golang.org```, ```go.opentelemetry.io```, ```go.elastic.co```, ```cloud.google.com/go```, ```go.uber.org```, ```gotest.tools```, ```go.opencensus.io```, ```go.mozilla.org```, ```gopkg.in```, ```gocloud.dev```
+  - Purpose: to scrape reported ```:repoUrl``` for repo/VCS for package's project home.
+* ```_job_<jobID>.json```
+  - command line tool: ```curl```
+  - URI: ```api.phylum.io/api/v0/data/jobs/:jobid```
+  - Purpose: to obtain the status of the phylum.io analysis (component or incomplete) as well as other analysis results.
+* ```*.sc.json```
+  - command line tool: ```scorecard```
+  - URI: various
+  - Purpose: to run and obtain OSSF Scorecard check scores.
+* ```*.cs.json```
+  - command line tool: ```criticality_score```
+  - URI: various
+  - Purpose: to run and obtain OSSF Criticality Score results.
+* ```*.hc.json```
+  - command line tool: ```hipcheck```
+  - URI: various
+  - Purpose: to run and obtain MITRE's hipcheck analysis results.
+* all (to GitHub)
+  - command line tool: ```scorecard```, ```criticality_score```, ```hipcheck```, and ```curl```
+  - URI: ```api.github.com/user/octocat```
+  - Purpose: to manage token rate limits imposed by GitHub API.
+* all (to phylum)
+  - command line tool: ```phylum```
+  - URI: unknown by way of ```phylum auth token -qq --bearer```
+  - Purpose: to obtain and authorize Phylum.io's API
+* other (for GitHub Organization Owner)
+  - command line tool: ```curl```
+  - URI: ```api.github.com/user/:owner```
+  - Purpose: to obtain specific user or organizational details for a specific GitHub repo.
 
 ##### Summaries
 
@@ -260,21 +343,23 @@ watchdog to terminate docker containers that run longer that specified seconds (
 
 ## Rebuilding
 
-- to rebuild everything, use the ```-f``` flag for ```scir-oss.sh```
+- to rebuild everything, use the ```-f all``` flag for ```scir-oss.sh```
 
 For selective rebuilding:
 
 - to rebuild only the ```_scir.json```, delete the file
-- to rebuild only the ```_coalesce.csv```, delete the file
-- to rebuild ```dep_prds.json``` and ```dep_prjs.csv```, delete either file
-- to rebuild all the score cards, remove the ```deps.d``` folder (completely)
-- to rebuild the score cards for a specific project, remove the ```deps.d/<project>``` folder (completely)
-- to rebuild a OSSF/scorecard for a specific project, remove the ```deps.d/<project>/_sc.json``` file
-- to rebuild a MITRE/hipcheck card for a specific project, remove the ```deps.d/project/_hc.json``` file
+- to rebuild only the ```_coalesce.csv```, delete the file (or ```-f scores```)
+- to rebuild ```dep_prds.json``` and ```dep_prjs.csv```, delete either file (or ```-f deps```)
+- to rebuild all the score cards, remove the ```deps.d``` folder (completely) (or ```-f scard,hcheck,crit,meta```)
+- to rebuild all the score cards for a specific project, remove the ```deps.d/<project>``` folder (and use ```-f cards```)
+- to rebuild a OSSF/scorecard for a specific project, remove the ```deps.d/<project>/_sc.json``` file (and use ```-f cards```)
+- to rebuild a OSSF/Criticality Score card for a specific project, remove the ```deps.d/<project>/_cs.json``` file (and use ```-f cards```)
+- to rebuild a MITRE/hipcheck card for a specific project, remove the ```deps.d/<project>/_hc.json``` file (and use ```-f cards```)
+- to rebuild a GH metafile card for a specific project, remove the ```deps.d/<project>/_ghapi.json``` file (and use ```-f cards```)
 
 For selective "skipping":
 
-- ```.skip``` files will override rebuilding for individual score card tool files, e.g., ```.sc.json.skip``` or ```.hc.json.skip```, which is useful when the tool is erroring on that dependent project
+- ```.skip``` files will override rebuilding for individual score card files, e.g., ```.sc.json.skip```, ```.cs.json.skip```, ```.hc.json.skip```, or ```_ghapi.json.skip```, which is useful when the tool is erroring on that dependent project
 
 ```
 WARNING: hipcheck skipping aws/aws-sdk-go-v2, del deps.d/aws___aws-sdk-go-v2/aws___aws-sdk-go-v2.hc.json.skip to undo
@@ -339,6 +424,53 @@ HC_GITHUB_TOKEN
 * Confluence account
 ```
 CONF_PAT
+```
+
+## Code Structure
+
+### scir-oss.sh
+
+This script is logically structured into two general phases, build and report. Build is the execution of external tools and APIs to collect data from a variety of public and proprietary sources. Once, collected, that data is categorized, mathematically normalized, and summerized into a report suitable for review on Confluence.
+
+The code is contained in a singular `bash` shell script containing a little over 100 functions. Further, the code is checked using [`shellcheck`](https://github.com/koalaman/shellcheck) to ensure some semblence of correctness. Furthermore, the script [`shell-call-graph`](https://codeberg.org/rak/shell-call-graph) is used to structurally graph these 100+ functions. For "saneness", the following three call graphs seem to be the most helpful.
+
+NB: either install `dot` to convert digraphs to PDF (or other formats), or use the online tool [Graphviz Online](https://dreampuf.github.io/GraphvizOnline/) by way of copy/paste (the generated `.txt` file)
+
+#### full call graph
+
+```
+# generate graph
+bash /home/vagrant/src/shell-call-graph/shell-call-graph ./scir-oss.sh > scir-full-digraph.txt
+#
+# create a PDF of the graph
+cat scir-full-digraph.txt | dot -Tpdf > scir-full-digraph.pdf
+```
+
+#### build call graph
+
+```
+cat scir-full-digraph.txt | \
+  grep -v -E '(_compile_json_p4report|_cio_criteria|_p4_outlook|_summary_scores_criteria_tbl|_summary_scores)' | \
+  grep -v -E '(_say|_warn|_debug|_fatal|_err)' > scir-build-digraph.txt
+
+cat scir-build-digraph.txt | dot -Tpdf > scir-build-digraph.pdf
+```
+
+#### report call graph
+
+```
+cat scir-full-digraph.txt | \
+  grep    -E '({|}|_compile_json_p4report|_cio_criteria|_p4_outlook|_summary_scores_criteria_tbl|_summary_scores)' | \
+  grep -v -E '(_dig4subdep|_phylum_dep_components|build_caches|_say|_warn|_debug|_fatal|_err)' > scir-report-digraph.txt
+
+cat scir-report-digraph.txt | dot -Tpdf > scir-report-digraph.pdf
+```
+
+### pub-scir.sh
+
+```
+bash /home/vagrant/src/shell-call-graph/shell-call-graph ./pub-scir.sh > pub-full-digraph.txt
+cat pub-full-digraph.txt | dot -Tpdf > pub-full-digraph.pdf
 ```
 
 ## TODOs
