@@ -1,0 +1,733 @@
+{
+  "one": "one",
+  "two": "two",
+  "licenses": [
+    {
+      "commonName": "Academic Free License v3.0",
+      "spdxId": "AFL-3.0",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "true"
+      }
+    },
+    {
+      "commonName": "GNU Affero General Public License v3.0",
+      "spdxId": "AGPL-3.0-only",
+      "spdxIdDeprecated": "AGPL-3.0",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "true",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "true",
+        "sameLicense": "true",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "Apache License 2.0",
+      "spdxId": "Apache-2.0",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "true"
+      }
+    },
+    {
+      "commonName": "Artistic License 2.0",
+      "spdxId": "Artistic-2.0",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "true"
+      }
+    },
+    {
+      "commonName": "BSD 2-clause \"Simplified\" License",
+      "spdxId": "BSD-2-Clause",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "BSD 3-clause Clear License",
+      "spdxId": "BSD-3-Clause-Clear",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "false",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "true",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "BSD 3-clause \"New\" or \"Revised\" License",
+      "spdxId": "BSD-3-Clause",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "Creative Commons Attribution 4.0",
+      "spdxId": "CC-BY-4.0",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "false",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "true",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "true"
+      }
+    },
+    {
+      "commonName": "Creative Commons Attribution Share Alike 4.0",
+      "spdxId": "CC-BY-SA-4.0",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "false",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "true",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "true",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "true"
+      }
+    },
+    {
+      "commonName": "Creative Commons Zero v1.0 Universal",
+      "spdxId": "CC0-1.0",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "false",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "true",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "false",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "true"
+      }
+    },
+    {
+      "commonName": "Eclipse Public License 1.0",
+      "spdxId": "EPL-1.0",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "true",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "true",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "European Union Public License 1.1",
+      "spdxId": "EUPL-1.1",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "true",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "true",
+        "sameLicense": "true",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "true"
+      }
+    },
+    {
+      "commonName": "GNU General Public License v2.0",
+      "spdxId": "GPL-2.0-only",
+      "spdxIdDeprecated": "GPL-2.0",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "true",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "true",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "GNU General Public License v3.0",
+      "spdxId": "GPL-3.0-only",
+      "spdxIdDeprecated": "GPL-3.0",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "true",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "true",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "ISC License",
+      "spdxId": "ISC",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "GNU Lesser General Public License v2.1",
+      "spdxId": "LGPL-2.1-only",
+      "spdxIdDeprecated": "LGPL-2.1",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "true",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "true",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "GNU Lesser General Public License v3.0",
+      "spdxId": "LGPL-3.0-only",
+      "spdxIdDeprecated": "LGPL-3.0",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "true",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "true",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "LaTeX Project Public License v1.3c",
+      "spdxId": "LPPL-1.3c",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "false",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "true",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "MIT License",
+      "spdxId": "MIT",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "Mozilla Public License 2.0",
+      "spdxId": "MPL-2.0",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "true",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "true",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "true"
+      }
+    },
+    {
+      "commonName": "Microsoft Public License",
+      "spdxId": "MS-PL",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "true"
+      }
+    },
+    {
+      "commonName": "Microsoft Reciprocal License",
+      "spdxId": "MS-RL",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "true",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "true",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "true"
+      }
+    },
+    {
+      "commonName": "SIL Open Font License 1.1",
+      "spdxId": "OFL-1.1",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "true",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "Open Software License 3.0",
+      "spdxId": "OSL-3.0",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "true",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "true",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "true",
+        "sameLicense": "true",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "true"
+      }
+    },
+    {
+      "commonName": "The Unlicense",
+      "spdxId": "Unlicense",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "false",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "false",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "Do What The F*ck You Want To Public License",
+      "spdxId": "WTFPL",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "false",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "false",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "false",
+        "holdLiable": "false",
+        "trademarkUse": "false"
+      }
+    },
+    {
+      "commonName": "zlib License",
+      "spdxId": "Zlib",
+      "spdxIdDeprecated": "",
+      "properties": {
+	"deprecated": "false",
+	"fsfApproved": "true",
+	"osiApproved": "true",
+        "commercialUse": "true",
+        "distribution": "true",
+        "modification": "true",
+        "patentUse": "false",
+        "patentUseRestrictive": "false",
+        "privateUse": "true",
+        "discloseSource": "false",
+        "licenseAndCopyrightNotice": "true",
+        "networkUseIsDistribution": "false",
+        "sameLicense": "false",
+        "stateChanges": "true",
+        "holdLiable": "true",
+        "trademarkUse": "false"
+      }
+    }
+  ],
+  "propertyDefinitions": [
+    {
+      "commonName": "Deprecated License Identifiers",
+      "id": "deprecated",
+      "class": "informational",
+      "text": "There is an updated license identifier and the deprecated license identifier, while remaining valid, should no longer be used."
+    },
+    {
+      "commonName": "FSF Free/Libre Approved",
+      "id": "fsfApproved",
+      "class": "informational",
+      "text": "The license is listed as free by the FSF."
+    },
+    {
+      "commonName": "OSI Approved",
+      "id": "osiApproved",
+      "class": "informational",
+      "text": "The license is OSI-approved."
+    },
+    {
+      "commonName": "Commercial Use",
+      "id": "commercialUse",
+      "class": "permissions",
+      "text": "This software and derivatives may be used for commercial purposes."
+    },
+    {
+      "commonName": "Distribution",
+      "id": "distribution",
+      "class": "permissions",
+      "text": "You may distribute this software."
+    },
+    {
+      "commonName": "Modification",
+      "id": "modification",
+      "class": "permissions",
+      "text": "This software may be modified."
+    },
+    {
+      "commonName": "Patent Use",
+      "id": "patentUse",
+      "class": "permissions",
+      "text": "This license provides an express grant of patent rights from the contributor to the recipient."
+    },
+    {
+      "commonName": "Patent Use (Restrictive)",
+      "id": "patentUseRestrictive",
+      "class": "limitations",
+      "text": "This license explicitly states that it does NOT grant you any rights in the patents of contributors."
+    },
+    {
+      "commonName": "Private Use",
+      "id": "privateUse",
+      "class": "permissions",
+      "text": "You may use and modify the software without distributing it."
+    },
+    {
+      "commonName": "Disclose Source",
+      "id": "discloseSource",
+      "class": "conditions",
+      "text": "Source code must be made available when distributing the software."
+    },
+    {
+      "commonName": "License and Copyright Notice",
+      "id": "licenseAndCopyrightNotice",
+      "class": "conditions",
+      "text": "Include a copy of the license and copyright notice with the code."
+    },
+    {
+      "commonName": "Network Use is Distribution",
+      "id": "networkUseIsDistribution",
+      "class": "conditions",
+      "text": "Users who interact with the software via network are given the right to receive a copy of the corresponding source code."
+    },
+    {
+      "commonName": "Same License",
+      "id": "sameLicense",
+      "class": "conditions",
+      "text": "Modifications must be released under the same license when distributing the software. In some cases a similar or related license may be used."
+    },
+    {
+      "commonName": "State Changes",
+      "id": "stateChanges",
+      "class": "conditions",
+      "text": "Indicate changes made to the code."
+    },
+    {
+      "commonName": "Hold Liable",
+      "id": "holdLiable",
+      "class": "limitations",
+      "text": "Software is provided without warranty and the software author/license owner cannot be held liable for damages."
+    },
+    {
+      "commonName": "Trademark Use",
+      "id": "trademarkUse",
+      "class": "limitations",
+      "text": "This license explicitly states that it does NOT grant you trademark rights, even though licenses without such a statement probably do not grant you any implicit trademark rights."
+    }
+  ],
+  "three": "three",
+  "attributions":
+  {
+    "spdxIdSrc": "https://spdx.org/licenses/",
+    "spdxIdApproval": "https://spdx.org/licenses/",
+    "propertySrc": "https://www.cmu.edu/cttec/forms/opensourcelicensegridv1.pdf",
+    "altPropertySrc": "https://github.com/github/choosealicense.com"
+  }
+}
