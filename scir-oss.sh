@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
 #
 
-readonly _version="pubRel 240627b (branch: publicRelease)"
+readonly _version="pubRel 240719a (branch: publicRelease)"
 readonly _OSSFSC="gcr.io/openssf/scorecard:latest"
 readonly _OSSFCS="${HOME}/go/bin/criticality_score"
 readonly _MITRHC="hipcheck:2022-07-06-delivery"
@@ -127,7 +127,8 @@ readonly __SECTION__="<hr style='border: 10px solid gray; border-radius: 5px'/>"
 
 readonly __NULLGH__=":owner/:repo"
 readonly __NULLPURI__=":eco:name:ver"
-readonly __NULLLOG__="$(mktemp -u -p .)"
+__NULLLOG__="$(mktemp -u -p .)"
+readonly __NULLLOG__
 readonly __TIMEOUT__="300"
 
 #readonly _fpdigitsRE='^[+-]?[0-9]+([.][0-9]+)?$'
@@ -945,6 +946,12 @@ _compute_p4_scores()
     do
       # use NaN to signify errored check
       [[ -z "${score}" ]] && score="${__NAN__}"
+      #
+      # shell check 0.8.0 seems to rightly calling the
+      # assignment a noop and this should be removed
+      # TODO: deeper review to "ok" removing this line
+      # shellcheck disable=2269
+      #
       [[ ${score} =~ ${_fpdigitsRE} ]] && score="${score}"
       # hipchecks only true/false check has no threshold
       # but false is bad and implicitly implies true is
@@ -2540,7 +2547,7 @@ _dig4subdep()
   # TODO: fix/understand npm dependencies, this algorithm seemingly
   #       goes on forever - just stick to two levels until this is
   #       undertstood
-  [[ "${_c}" =~ ^npm ]] && [ "${_lev}" -eq 2 ] && _warn "npm limit: found level ${_lev} returning..." && return
+  [[ "${_c}" =~ ^npm ]] && [ "${_lev}" -eq 2 ] && _warn "npm limit: found level ${_lev} skipping ${_c} returning..." && return
 
 
   # form pkg name, _c, into for needed by
@@ -2589,7 +2596,7 @@ _dig4subdep()
         _warn "pull failed for ${_c}"
 
       touch "${_depout}_deps.json.visited.err"
-      if ! grep -q ",${_c}," "${_ftoupdate}"; then echo "${_lev},${_c},${_c},${_c},404" >> "${_ftoupdate}"; fi
+      if ! grep -q --fixed-strings ",${_c}," "${_ftoupdate}"; then echo "${_lev},${_c},${_c},${_c},404" >> "${_ftoupdate}"; fi
       _say "-n" "&" && return
     fi;
 
@@ -2607,7 +2614,7 @@ _dig4subdep()
   _r="$(jq -r '.repoUrl' "${_depout}_deps.json")"
   [[ -z "${_r}" ]] && _r="unknown"
   # if (! grep -q ${id} /etc/passwd) && (! grep ${id} /etc/group); then echo not there; fi
-  if ! grep -q ",${_c}," "${_ftoupdate}"; then echo "${_lev},${_c},${_r},${_r},200" >> "${_ftoupdate}"; fi
+  if ! grep -q --fixed-strings ",${_c}," "${_ftoupdate}"; then echo "${_lev},${_c},${_r},${_r},200" >> "${_ftoupdate}"; fi
 
   jq -r '.dependencies[]|.id' "${_depout}_deps.json" 2>/dev/null | \
     sort | \
@@ -2621,12 +2628,9 @@ _dig4subdep()
       #
       _l=$((_lev+1))
       #
-      # TODO: consider this inserts the dependency without really knowing
-      # if the dependency exists anymore as it has not yet
-      # been pulled
+      # record dependency (parent/child) relationship
       #
-      #if ! grep -q "${_d}" "${_ftoupdate}"; then echo "${_l},${_d},${_d}" >> "${_ftoupdate}"; fi
-      #echo "# ${_c} -> ${_d}" >> /tmp/depgraph.txt && echo "$(makePuri "${_c}") -> $(makePuri "${_d}")" >> /tmp/depgraph.txt;
+      echo "#s ${_dep}" >> "${__tmp_dep_graph}" && echo "\"${_c}\" -> \"${_d}\";" >> "${__tmp_dep_graph}";
       _dig4subdep "${_l}" "${_d}" "${_ftoupdate}"
     done #}
 
@@ -2846,7 +2850,7 @@ _phylum_dep_components()
 
   _patchIfNeeded "${3}"
 
-  _say "resetting ${4}" && cp /dev/null "${4}" && component_subdep_rebuild="true"
+  _say "resetting ${4}" && cp /dev/null "${4}" && cp /dev/null "${__tmp_dep_graph}" && component_subdep_rebuild="true"
 
   jq -r '.dependencies[]|.id,.repoUrl' "${3}" | \
     while :; do #{
@@ -2877,7 +2881,7 @@ _phylum_dep_components()
       # _dep: json,
       # repo: github.com/flori/json,
       # code: 100
-      #echo "# ${_dep}" >> /tmp/depgraph.txt && echo "ROOT -> $(makePuri "${_dep}")"" >> /tmp/depgraph.txt;
+      echo "# ${_dep}" >> "${__tmp_dep_graph}" && echo "\"${1}\" -> \"${_c}\";" >> "${__tmp_dep_graph}";
 
     done #}
 
@@ -2922,6 +2926,21 @@ _phylum_subdep_components()
   #       level 0 (${__component_prjs}) would 
   #       likely fail as the traveler could see
   #       the top level had already been visited
+}
+
+_build_digraph()
+{
+  cat <<-_DIGRAPHEOF > "${__component_dep_graph}"
+digraph G {
+
+    graph [ resolution=128, fontname=Arial, fontcolor=blue, fontsize=10, rankdir=LR ];
+    node [ fontname=Arial, fontcolor=blue, fontsize=10];
+    edge [ fontname=Helvetica, fontcolor=red, fontsize=10 ];
+    $(cat "${1}")
+}
+_DIGRAPHEOF
+
+  return 0
 }
 
 #
@@ -4152,6 +4171,7 @@ check_scir_files()
               "${__ghrcontribjson}" \
               "${__ghhtml}" \
               "${__phy_prjs}" \
+              "${__component_dep_graph}" \
               "${__component_prds}" \
               "${__component_prjs}" \
               "${1}_coalesce.csv" \
@@ -4810,6 +4830,12 @@ __main__()
       _phylum_subdep_components "${__component_prds}" "${__component_prjs}"
 
   #
+  # if there is a _tmp_dep_graph then take that structure
+  # and build a Graphviz formatted digraph
+  #
+  [[ -f "${__tmp_dep_graph}" ]] && _say "building digraph of dependencies..." && _build_digraph "${__tmp_dep_graph}" && rm "${__tmp_dep_graph}"
+
+  #
   # TODO: only remove ${component}_coalesce.csv
   #       if and only if after rebuilding, any files
   #       in deps.d are newer than
@@ -5006,11 +5032,9 @@ _set_bldFlags()
            do
              BFLAGS[${_indf}]="false"
            done
-           return 0
            ;;
       caches|cards|crit|deps|hcheck|issues|job|meta|scard|scores|subdeps)
            BFLAGS[${_flag,,}]="true"
-           return 0
            ;;
       *)
            return 1
@@ -5231,6 +5255,11 @@ __component_prds="${component}"_dep_prds.json
 # prjs are the projects that make the products
 #
 __component_prjs="${component}"_dep_prjs.csv
+#
+# dependency graph in Graphviz format
+#
+__tmp_dep_graph="$(mktemp -u -p .)"
+__component_dep_graph="${component}_dep_digraph.txt"
 
 # https://api.github.com/repos/:owner/:repo
 # https://github.com/:owner/:repo
