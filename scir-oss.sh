@@ -3361,7 +3361,7 @@ _find_restrictive_licenses()
                       .properties.networkUseIsDistribution == "true")
                     ) | [ .spdxId ]
              ' "${_OSSSCIRlicenseDB}" | \
-             jq -r --slurp 'add|@csv' 2>/dev/null)
+             jq -r --slurp 'unique|add|@csv' 2>/dev/null)
     ;;
     --project)
     ;;
@@ -3984,6 +3984,12 @@ build_caches()
 
 consolidate_issues()
 {
+  local __grepo
+  local __lic
+  local _liseq
+  local _site
+  local _id
+
   cp /dev/null "${3}"
 
   for __risk__ in "vulnerabilities" "maliciousCodeRisk" "engineeringRisk" "licenseRisk" "authorsRisk"
@@ -3995,6 +4001,39 @@ consolidate_issues()
     # before the slurp below ensures there is an .issues[]
     # key in the event the key is not present in the json
     #
+    [[ "${__risk__}" == "licenseRisk" ]] && _liseq=0 && find . -name \*_ghapi.json -print0 | \
+      xargs -0 \
+      jq -r '.git_url,.license.spdx_id' | \
+      while read -r __grepo; read -r __lic
+      do
+        ((_liseq++));
+	#
+	# this RE for the grep is based on results from the licenseDB.json file
+	# if it changes, this RE need to change. This RE will only match those
+	# licenses from the DB file which have the properties in the query:
+	# jq -r '.licenses[]|\
+	#  select (.properties.discloseSource == "true" or .properties.networkUseIsDistribution == "true")|\
+	#  .spdxId' ../settings/mychecks/licenseDB.json
+	# TODO: figure a way to auto-gen this RE
+	#
+	! grep -s -q -E '(MPL|GPL|OSL|MS-RL|EUPL|LPPL|EPL)' <<<"${__lic}" && continue
+        _site=$(sed 's^git://^^g;s^.git$^^g' <<<"${__grepo}")
+	_id=$(grep -i --fixed-string "${_site}" ./*_dep_prjs.csv | cut -d, -f2 | tr  '\n' ';' | sed 's/;$//g')
+        cat <<-_MYLICEOF
+  {
+    "tag": "HL$(printf %.4d "${_liseq}")",
+    "id": "${_id}",
+    "title": "$(sed '0,/*:/{s/[[:alpha:]]*://};s/\(.*\):/\1@/' <<<"${_id}") has a copyleft, restricted, license",
+    "description": "### Summary\nPackage owners declare a copyleft open source software license ${__lic}.\n\n### Impact\nUse and/or modification could compel disclosure of source code back to the open source software community.\n\n### References\n$(grep -i --fixed-string "${_site}" ./*_dep_prjs.csv | cut -d, -f2 | tr  '\n' ';' | sed 's/;$//g') from ${__grepo}\n\n### Recommendation\nDo not modify code in this module without understanding the open source software license and any disclosure requirements.\n",
+    "severity": "high",
+    "domain": "license",
+    "details": null,
+    "impact": "high",
+    "riskType": "licenseRisk"
+  }
+_MYLICEOF
+      done | \
+        jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
     # jq's arg _risk in quotes is NOT to be a shell expansion
     # false positive https://github.com/koalaman/shellcheck/issues/1160
     # shellcheck disable=2016
@@ -4007,7 +4046,7 @@ consolidate_issues()
         | .issues[],.dependencies[].issues[]
         | select(.riskType==$_risk)
       ' | \
-          jq --slurp 'unique_by(.title,.description,.tag,.id)' >> "${3}"
+          jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
   done #}
 
   return 0
@@ -4040,11 +4079,14 @@ _do_issues_reports()
   # As such, jq escape char is now converted to an HTML
   # entity in that same 'sed' filter.
   #
-  for __risk__ in "vulnerabilities" "maliciousCodeRisk" "authorsRisk"
+  for __risk__ in "vulnerabilities" "maliciousCodeRisk" "engineeringRisk" "authorsRisk" "licenseRisk"
   do #{
-    jq -r --arg _risk "${__risk__}" '.[]|select(.riskType==$_risk and .impact==("critical", "high"))' "${3}" | \
-      jq -r --slurp --arg _risk "${__risk__}" '
-        map("<tr><td>" + (.title|@html) + "</td><td>" + (.tag|@html) + "</td><td>" + (.description|@html)  + "</td></tr>")|["<h2>Critical and High " + $_risk + "</h2><table><tr><th>Package</th><th>Impact</th><th>Description</th></tr>"] + . + ["</table>"] |
+    __impacts__="critical high"
+    __label__="Critical and High"
+    [[ "${__risk__}" == "licenseRisk" ]] && __impacts__="critical high medium low" && __label__="Critical, High, Medium, and Low"
+    jq -r --arg _risk "${__risk__}" --arg _impacts "${__impacts__}" '.[]|select(.riskType==$_risk and .impact==($_impacts|split(" ")|.[]))' "${3}" | \
+      jq -r --slurp --arg _risk "${__risk__}" --arg _label "${__label__}" '
+        map("<tr><td>" + (.title|@html) + "</td><td>" + (.tag|@html) + "</td><td>" + (.description|@html)  + "</td></tr>")|["<h2>" + $_label + " " + $_risk + "</h2><table><tr><th>Package</th><th>Impact</th><th>Description</th></tr>"] + . + ["</table>"] |
         .[]
       ' | \
       sed 's/\\/\&#92;/g;s^### Overview^<h4>Overview</h4>^g;s^### Proof of Concept^<h4>Proof of Concept</h4>^g;s^### Importance^<h4>Importance</h4>^g;s^### Description^<h4>Description</h4>^g;s^### Summary^<h4>Summary</h4>^g;s^### Impact^<h4>Impact</h4>^g;s^###  Affected Configuration^<h4>Affected Configuration</h4>^g;s^### Patches^<h4>Patches</h4>^g;s^### Workarounds^<h4>Workarounds</h4>^g;s^### For more information^<h4>For more information</h4>^g;s^### Recommendation^<h4>Recommendation</h4>^g;s^### References^<h4>References</h4>^g;s^\*\*CVE\*\*:^<h4>CVE:</h4>^g;s^\*\*CVSS\*\*:^<b>CVSS:</b>^g;' >> "${2}_vulmalrep.html"
