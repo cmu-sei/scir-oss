@@ -24,9 +24,15 @@
 # DM24-0786
 # 
  
-readonly _version="pubRel 240509a (branch: publicRelease)"
+readonly _version="pubRel 240904a (branch: publicRelease)"
 
 readonly _CONFSVR="${CONFSVR:=https://confluence.myhost.com:8095/confluence}"
+#
+# in bytes
+# 0 means no limit
+#
+readonly _CONFSVRNOLIMIT=0
+readonly _CONFSVRLIMIT="${CONFSVRLIMIT:=5242880}"
 
 #
 # simply utilities
@@ -189,6 +195,7 @@ _attach_to_Conf_page()
       --header "X-Atlassian-Token: nocheck" \
       --header "Authorization: Bearer ${CONF_PAT}" \
       -F "file=@${2}" \
+      -F 'minorEdit="true"' \
       -F "comment=body of evidence for oss-p4 report" \
       "${_CONFSVR}/rest/api/content/${1}/child/attachment" \
       -o "${2}.resp" ; then
@@ -351,7 +358,10 @@ _cmdline="${0} ${*}"
 
 while getopts "a:hilopqvA:C:S:T:V" opt; do #{
   case $opt in
-    a) attachment="${OPTARG}" ;;
+    a) attachment="${OPTARG}"
+       [[ -s "${attachment}" ]] && attachment=$(realpath "${attachment}")
+       [[ ! -s "${attachment}" ]] && _fatal "cannot resolve ${OPTARG} as ${attachment}"
+       ;;
     i) interactive="true" ;;
     l) __logfil="pub-$(date +%Y%m%d-%H%M%S).log" ;;
     o) attachonly="true" ;;
@@ -397,15 +407,18 @@ ${quiet} &&
   _fdwarn=/dev/null &&
   _fdverbose=/dev/null
 
-${verbose} && _say "cmdline: ${_cmdline}"
-
 #
-# check runtime requirements and properly set up logfile if necessary
+# properly set up logfile if necessary
 #
 [[ -n "${__logfil}" ]] && __logger="tee -a ${__logfil}" && cp /dev/null "${__logfil}" && _rp="$(realpath -e "${__logfil}")"
 
+_say "cmdline: ${_cmdline}"
+
 [ -z "${_pageTitle}" ] && _pageTitle="${component} auto"
 
+#
+# check runtime requirements
+#
 if ! check_runtime; then _fatal "exiting due to missing runtime requirement(s)"; fi
 
 _say "setting current working folder to ${component}"
@@ -454,6 +467,17 @@ _say "body is ${_bodyValue}"
 _say "vuls and mal is ${_vumaValue}"
 
 [ ! -s "${_vumaValue}" ] && _warn "no ${_vumaValue} file, using placeholder" && cp /dev/null "${_vumaValue}"
+#
+# test for resource limit(s)
+#  if too big, drop the vuls and mal report and treat as if "not there" like above
+#  so the TOO BIG report can be attached to the report
+#
+[[ ${_CONFSVRLIMIT} -gt ${_CONFSVRNOLIMIT} ]] && \
+  if [[ $(( $(stat --printf="%s" "${_bodyValue}") + $(stat --printf="%s" "${_vumaValue}") )) -gt ${_CONFSVRLIMIT} ]]; then
+    _warn "${_vumaValue} file is too large for ${_CONFSVR} being greater than ${_CONFSVRLIMIT} bytes, please attach using: '${0}' -l -v -C '${component}' -T '${_pageTitle}' -S '${_spaceKey}' -A '${_ancestorTitle}' -o -a '${_vumaValue}'"
+    _vumaValue="$(mktemp)"
+    cp /dev/null "${_vumaValue}"
+  fi
 
 #
 # TODO: control chars in the body, vuls, and mal

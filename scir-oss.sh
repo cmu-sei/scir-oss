@@ -30,10 +30,10 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
 #
 
-readonly _version="pubRel 240719a (branch: publicRelease)"
-readonly _OSSFSC="gcr.io/openssf/scorecard:latest"
-readonly _OSSFCS="${HOME}/go/bin/criticality_score"
-readonly _MITRHC="hipcheck:2022-07-06-delivery"
+readonly _version="pubRel 240904a (branch: publicRelease)"
+readonly _OSSFSC="${_OSSFSC:=gcr.io/openssf/scorecard:latest}"
+readonly _OSSFCS="${_OSSFCS:=${HOME}/go/bin/criticality_score}"
+readonly _MITRHC="${_MITRHC:=hipcheck:2022-07-06-delivery}"
 #
 # check_runtime will confirm these settings
 # if the path does not exist, it will be updated
@@ -73,9 +73,15 @@ _say()
   echo "${1}" "${2}" | ${__logger} >&"${_fdverbose}" && return
 }
 
+_info()
+{
+  _HTMLcaveats+=("I: ${*}<br/>")
+  echo INFO: "${*}" | ${__logger} >&"${_fdwarn}" && return
+}
+
 _warn()
 {
-  _HTMLcaveats+=("${*}<br/>")
+  _HTMLcaveats+=("W: ${*}<br/>")
   echo WARNING: "${*}" | ${__logger} >&"${_fdwarn}" && return
 }
 
@@ -1669,15 +1675,16 @@ _maintained()
   fi
 
   # shellcheck disable=2046
+  _hcmsg="with no insight from hipcheck"
   if [ -s "${2}" ]; then
     _v="$(jq -r '..|select(.analysis?=="Activity")|[.value,.threshold]|@csv' "${2}")"
     _t="${_v//*,/}"
     _v="${_v//,*/}"
     _q="under or at"
-    [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over"
-    _hcmsg="with most recent activity being ${_v} weeks ${_q} the ${_t} week threshold"
-  else
-    _hcmsg="with no insight from hipcheck"
+    [[ -n "${_v}" ]] && {
+      [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over"
+      _hcmsg="with most recent activity being ${_v} weeks ${_q} the ${_t} week threshold";
+    }
   fi
 
   echo "${_scmsg} ${_hcmsg}" | sed 's/"//g;s/ ,/ /g'
@@ -2058,14 +2065,15 @@ _code_scanners()
   local _v
   local _q
 
+  _hcmsg="with no insight from hipcheck"
   if [ -s "${2}" ]; then
     _v="$(jq -r '..|select(.analysis?=="Fuzz")|[.value]|@csv' "${2}")"
     _v="${_v//,*/}"
     _q=""
-    [ "${_v}" = "false" ] && _q="${__REDFLAG__}not "
-    _hcmsg="with repository ${_q}receiving regular fuzz testing"
-  else
-    _hcmsg="with no insight from hipcheck"
+    [[ -n "${_v}" ]] && {
+      [ "${_v}" = "false" ] && _q="${__REDFLAG__}not "
+      _hcmsg="with repository ${_q}receiving regular fuzz testing";
+    }
   fi
 
   if [ -s "${1}" ]; then
@@ -2216,15 +2224,21 @@ _binary_artifacts()
   local _v
   local _q
 
+  # TODO: change all tests for all scorecards to
+  #       check for _v before check with bc(1)
+  #       as done here. Look for
+  #       'no insight from hipcheck'
+  #
+  _hcmsg="with no insight from hipcheck"
   if [ -s "${2}" ]; then
     _v="$(jq -r '..|select(.analysis?=="Binary")|[.value,.threshold]|@csv' "${2}")"
     _t="${_v//*,/}"
     _v="${_v//,*/}"
     _q="under or at"
-    [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over"
-    _hcmsg="with binaries potentially containing code being ${_v} found ${_q} the ${_t} permitted threshold"
-  else
-    _hcmsg="with no insight from hipcheck"
+    [[ -n "${_v}" ]] && {
+      [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over";
+      _hcmsg="with binaries potentially containing code being ${_v} found ${_q} the ${_t} permitted threshold";
+    }
   fi
 
   if [ -s "${1}" ]; then
@@ -2310,16 +2324,17 @@ _badactors()
     _hcmsg=" (and contributor's affiliations unknown as project is not on GitHub)"
     _v=0
   else #{
+    _hcmsg="with no insight from hipcheck"
     if [ -s "${2}" ]; then
       _v="$(jq -r '..|select(.analysis?=="Affiliation")|[.value,.threshold]|@csv' "${2}")"
       _t="${_v//*,/}"
       _v="${_v//,*/}"
       _q="at or under"
-      [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over"
-      _hcmsg="with contributors affiliations being ${_v} found ${_q} the ${_t} permitted threshold"
-    else
-      _hcmsg="with no insight from hipcheck"
-  fi
+      [[ -n "${_v}" ]] && {
+        [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over"
+        _hcmsg="with contributors affiliations being ${_v} found ${_q} the ${_t} permitted threshold";
+      }
+    fi
   fi #}
 
   local _score
@@ -2850,7 +2865,9 @@ _phylum_dep_components()
 
   _patchIfNeeded "${3}"
 
-  _say "resetting ${4}" && cp /dev/null "${4}" && cp /dev/null "${__tmp_dep_graph}" && component_subdep_rebuild="true"
+  _say "resetting ${4}" && cp /dev/null "${4}" && cp /dev/null "${__tmp_dep_graph}" && component_subdep_rebuild="true";
+
+  _say "getting Phylum analysis job" && _phylum_jobStatus "${1}" "${3}";
 
   jq -r '.dependencies[]|.id,.repoUrl' "${3}" | \
     while :; do #{
@@ -4259,8 +4276,10 @@ check_runtime()
     _sudo="sudo -E"
   fi
 
-  for dimg in "${_OSSFSC}" "${_MITRHC}"
+  local -n dimg
+  for dimg in _OSSFSC _MITRHC
   do
+    _info "config docker image ${!dimg}=${dimg}"
     local _dimgFile
     _dimgFile=$(${_sudo} docker image ls ${dimg} | grep -E -v "REPOSITORY")
     [ -z "${_dimgFile}" ] &&
@@ -4287,14 +4306,17 @@ check_runtime()
   local -n _sp
   for _sp in _MITRHCconfig _MITRHCscripts _OSSSCIRlicenseDB
   do
+    _info "config setting ${!_sp}=${_sp}"
     [[ ! -r "${_sp}" ]] && _err "can't find path/file for ${!_sp}=${_sp}" && _rc=1
   done
 
   #
   # made sure these are all readable by container processes, error off if otherwise
   #
-  [[ (( $(find "${_MITRHCconfig}" -perm -o=r|wc -l) -lt 6 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCconfig}" && _rc=1
-  [[ (( $(find "${_MITRHCscripts}" -perm -o=r|wc -l) -lt 2 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}" && _rc=1
+  [[ (( $(find "${_MITRHCconfig}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCconfig}, use chmod o+rx ${_MITRHCconfig}/" && _rc=1
+  [[ (( $(find "${_MITRHCconfig}" -type f -perm -o=r|wc -l) -lt 5 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCconfig}, use chmod o+r ${_MITRHCconfig}/*" && _rc=1
+  [[ (( $(find "${_MITRHCscripts}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod o+rx ${_MITRHCscripts}/" && _rc=1
+  [[ (( $(find "${_MITRHCscripts}" -type f -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod o+r ${_MITRHCscripts}/*" && _rc=1
   [[ (( $(find "${_OSSSCIRlicenseDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRlicenseDB}" && _rc=1
 
   #
