@@ -2923,7 +2923,12 @@ _phylum_subdep_components()
   # _dep_prjs.csv.subs does not **yet** have the
   # projects in them
   #
-  jq -r '.dependencies[]|.id' "${_prds}" | \
+  # came across a "sick" '.id' specifically:
+  # "id": "maven:com.github.joshelser:dropwizard-metrics-hadoop-metrics2-reporter:0.1.2\n    ",
+  # for apache/hive, # which results in a bad read for this loop, hence the 'grep -v'
+  # TODO: find a general way to clean these inputs from phylum
+  #
+  jq -r '.dependencies[]|.id' "${_prds}" | grep -v -E '(^[[:space:]].*$|^$)' | \
     sort | \
     while :; do #{
       read -r _c
