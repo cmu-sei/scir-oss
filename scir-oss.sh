@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
 #
 
-readonly _version="pubRel 240904a (branch: publicRelease)"
+readonly _version="pubRel 240930a (branch: publicRelease)"
 readonly _OSSFSC="${_OSSFSC:=gcr.io/openssf/scorecard:latest}"
 readonly _OSSFCS="${_OSSFCS:=${HOME}/go/bin/criticality_score}"
 readonly _MITRHC="${_MITRHC:=hipcheck:2022-07-06-delivery}"
@@ -1844,7 +1844,7 @@ _best_practices()
   if [[ -n "${_bp}" ]]; then
     _bp="$(_fotp "$(echo "${_bp}" | cut -d, -f1)" "${_SCthreshold}")${_bp}"
   else
-    _bp="${__WARNING__} check for contributor diversity not run"
+    _bp="${__WARNING__} check for best practices not run"
   fi
 
   echo "${_bp}" | sed 's/"//g;s/ ,/ /g;s^,/^/^g;'
@@ -4266,7 +4266,7 @@ check_runtime()
   #
   # the binaries
   #
-  for cmd in jq curl docker base64 phylum iconv "${_OSSFCS}"
+  for cmd in bc jq curl docker base64 phylum iconv "${_OSSFCS}"
   do
     [ -z "$(command -v "${cmd}")" ] &&
       _err "required command, ${cmd}: not found in path or not installed" &&
