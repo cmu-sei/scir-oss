@@ -24,7 +24,7 @@
 # DM24-0786
 # 
  
-readonly _version="pubRel 240904a (branch: publicRelease)"
+readonly _version="pubRel 241003a (branch: publicRelease)"
 
 readonly _CONFSVR="${CONFSVR:=https://confluence.myhost.com:8095/confluence}"
 #
@@ -49,6 +49,7 @@ _warn()
 
 _debug()
 {
+  # shellcheck disable=SC2317
   echo DEBUG: "${*}" | ${__logger} >&"${_fdwarn}" && return
 }
 
@@ -68,7 +69,8 @@ _getyn()
   ! ${interactive} && return 0
 
   read -p "${1} (y=yes; n=no)? " -n 1 -r
-  _say ""
+  echo "" >&"${_fderr}"
+
   if [[ $REPLY =~ ^[Yy]$ ]]
   then
       :
@@ -93,7 +95,7 @@ _create_Conf_page()
 {
   _say "trying to create ${2} in space ${1} under ${_ancestorTitle}"
 
-  ! _getyn "continue" && echo "" && return 1
+  ! _getyn "create initial ${_pageTitle}" && echo "" && return 1
 
   local _temp
   local _title
@@ -178,6 +180,8 @@ _attach_to_Conf_page()
 {
   _say "attaching ${2} to pageId ${1}"
 
+  ! _getyn "attach ${2}" && return 1
+
   # strange, but seemingly bogus domain names
   # to af.mil fail but curl thinks all is good
   #
@@ -204,7 +208,7 @@ _attach_to_Conf_page()
   else
     # just uploading one file so it is results[0]
     [ -z "$(jq -j -r '.results[0].id' "${2}.resp" 2>/dev/null | sed 's/null//g')" ] &&
-      _warn "$(zcat "${2}.resp" | jq -r '.message')" && return 2
+      _err "$(jq -r '.message' "${2}.resp")" && return 2
   fi
 
   return 0
@@ -214,7 +218,7 @@ _update_Conf_page()
 {
   _say "updating content ${1} from ${2} in space ${_spaceKey} under ${_ancestorTitle}"
 
-  ! _getyn "continue" && return 1
+  ! _getyn "update ${_pageTitle}" && return 1
 
   # strange, but seemingly bogus domain names
   # to af.mil fail but curl thinks all is good
@@ -257,6 +261,10 @@ _get_Page_version()
 check_runtime()
 {
   local _temp
+  local _type
+  local _searchCriteria
+  local _thingy
+
   _rc=0 # 0 = no error, 1 = non recoverable error
 
   #
@@ -305,16 +313,21 @@ check_runtime()
   # lastly, check the Confluence PAT and spaceKey for goodness
   #
   _temp="$(mktemp)"
+  _type="global"
+  _searchCriteria="spacekey%3A${_spaceKey}"
+  _thingy="spacekey"
+  [[ ${_spaceKey:0:1} == '~' ]] && _type="personal" && _searchCriteria="${_spaceKey}" && _thingy="personal space"
+
   _hc=$(curl  -w "%{http_code}" -k --silent --request GET \
     --header "authorization: Bearer ${CONF_PAT}" \
     --header 'Accept: application/json, text/javascript, */*; q=0.01' \
-    --url "${_CONFSVR}/rest/spacedirectory/1/search?query=spacekey%3A${_spaceKey}&type=global&status=current" \
+    --url "${_CONFSVR}/rest/spacedirectory/1/search?query=${_searchCriteria}&type=${_type}&status=current" \
     --output "${_temp}")
 
   case ${_hc} in
     401) _rc=1 && _err CONF_PAT: appears to be no good, refresh your Confluence PAT
          ;;
-    200) [ "$(jq -r '.spaces[0].key' "${_temp}")" = "null" ] && _rc=1 && _err "bad spacekey: ${_spaceKey}"
+    200) [ "$(jq -r '.spaces[0].key' "${_temp}")" = "null" ] && _rc=1 && _err "bad ${_thingy}: ${_spaceKey}"
          ;;
     *) _say "confirmed ${_spaceKey} is available using your Confluence PAT"
          ;;
@@ -380,6 +393,7 @@ while getopts "a:hilopqvA:C:S:T:V" opt; do #{
 
   -a:  file to attach to the page (e.g., body of evidence)
   -h:  this message (and exit)
+  -i:  interactive Y/N prompts for write operations
   -l:  log output messages to file of the form 'pub-YYYYMMDD-HHMMSS.log' in 'logs' folder
   -o:  attach file only without changing page itself
   -p:  preserve local working files and responses (for testing)
@@ -388,6 +402,7 @@ while getopts "a:hilopqvA:C:S:T:V" opt; do #{
   -A:  Ancestor page title (default: 'OSS Intel Requests')
   -C:  set local component name/project name (REQUIRED)
   -S:  Space in Confluence (default: MYDOCS)
+       for Confluence Personal Space use '~username'
   -T:  Page Title (default: same as -C with ' auto' appended)
   -V:  display version (and exit)
 
@@ -422,7 +437,7 @@ _say "cmdline: ${_cmdline}"
 if ! check_runtime; then _fatal "exiting due to missing runtime requirement(s)"; fi
 
 _say "setting current working folder to ${component}"
-cd "${component}" || _fatal "can't set working folder to ${component}"
+pushd "${component}" >&"${_fdwarn}" || _fatal "can't set working folder to ${component}"
 
 #
 # since 'preMVP 240507a (branch: main)' tidy
@@ -433,7 +448,7 @@ mkdir -p logs/
 [[ -d logs ]] && find  . -maxdepth 1 -name pub-\*.log -print0 | xargs -0 -I {} mv {} ./logs/
 
 #
-# this log file will be moved later before exit/cd ..
+# this log file will be moved later before exit/popd.
 #
 [[ -n "${__logfil}" ]] && mv -f "${_rp}" "."
 
@@ -451,7 +466,7 @@ ${attachonly} && [[ -n "${attachment}" ]] && {
     fi;
     _say "done.";
     [[ -n "${__logfil}" ]] && mv -f "${__logfil}" "./logs/"
-    cd ..;
+    popd >&"${_fdwarn}" || exit
     exit 0;
   }
 
@@ -538,7 +553,7 @@ fi
 _say "done."
 
 [[ -n "${__logfil}" ]] && mv -f "${__logfil}" "./logs/"
-cd ..
+popd >&"${_fdwarn}" || exit
 
 exit 0
 #}
