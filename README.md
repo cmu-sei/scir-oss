@@ -82,6 +82,8 @@ $ ./scir-oss.sh -h
   -U:  use package URI spec rather than a Phylum.io project name (e.g., npm:@babel/highlight:^7.18.6)
   -V:  display version (and exit)
   -W:  watch docker scorecards run not to exceed time limit (default: 300 seconds)
+  -Z:  specify certificates trust store when required by enterprise-level proxies
+       which may be in use (e.g. -Z '/etc/ssl/certs/ca-certificates.crt')
 
   BUILD FLAGS (-f 'flag1[,flag2,...]')
 
@@ -101,15 +103,16 @@ $ ./scir-oss.sh -h
 Explaination: TBD
 
 #### pub-scir: Publish an OSS-P4/R to Confluence
+```
 $ cd scir-oss
 $ ./pub-scir.sh -h
-```
   USAGE: ./pub-scir.sh [OPTIONS]
 
   OPTIONS
 
   -a:  file to attach to the page (e.g., body of evidence)
   -h:  this message (and exit)
+  -i:  interactive Y/N prompts for write operations
   -l:  log output messages to file of the form 'pub-YYYYMMDD-HHMMSS.log' in 'logs' folder
   -o:  attach file only without changing page itself
   -p:  preserve local working files and responses (for testing)
@@ -118,6 +121,7 @@ $ ./pub-scir.sh -h
   -A:  Ancestor page title (default: 'Example OSS Reports')
   -C:  set local component name/project name (REQUIRED)
   -S:  Space in Confluence (default: MYDOCS)
+       for Confluence Personal Space use '~username'
   -T:  Page Title (default: same as -C with ' auto' appended)
   -V:  display version (and exit)
 ```

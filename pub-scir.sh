@@ -24,7 +24,7 @@
 # DM24-0786
 # 
  
-readonly _version="pubRel 241003a (branch: publicRelease)"
+readonly _version="pubRel 241003b (branch: publicRelease)"
 
 readonly _CONFSVR="${CONFSVR:=https://confluence.myhost.com:8095/confluence}"
 #
@@ -399,7 +399,7 @@ while getopts "a:hilopqvA:C:S:T:V" opt; do #{
   -p:  preserve local working files and responses (for testing)
   -q:  quiet (overrides verbose, warnings)
   -v:  verbose, not quiet
-  -A:  Ancestor page title (default: 'OSS Intel Requests')
+  -A:  Ancestor page title (default: 'Example OSS Reports')
   -C:  set local component name/project name (REQUIRED)
   -S:  Space in Confluence (default: MYDOCS)
        for Confluence Personal Space use '~username'

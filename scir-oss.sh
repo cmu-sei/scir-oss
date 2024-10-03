@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
 #
 
-readonly _version="pubRel 240930a (branch: publicRelease)"
+readonly _version="pubRel 241003b (branch: publicRelease)"
 readonly _OSSFSC="${_OSSFSC:=gcr.io/openssf/scorecard:latest}"
 readonly _OSSFCS="${_OSSFCS:=${HOME}/go/bin/criticality_score}"
 readonly _MITRHC="${_MITRHC:=hipcheck:2022-07-06-delivery}"
@@ -46,6 +46,8 @@ _OSSSCIRsettings="/vagrant/scir-oss/settings"
 _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
 _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
 _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
+_CAStoreVolume=
+_CAStoreDocker=
 
 #readonly _MITRHC="hipcheck:2022-07-06-delivery"
 
@@ -62,9 +64,10 @@ _cleanup_and_exit()
   [[   "${__logfil}" == "${__NULLLOG__}" ]] && rm -f "${__logfil}"
   [[ ! "${__logfil}" == "${__NULLLOG__}" ]] && [[ -f "${__logfil}" ]] && mv "${__logfil}" logs/
 
+  rm -f "${__RATELIMIT__}"
   #
   # shellcheck disable=2164
-  ! dirs -v |tail -1 | grep -q '^ 0' && popd
+  ! dirs -v |tail -1 | grep -q '^ 0' && popd >&"${_fdwarn}"
   exit "${1}"
 }
 
@@ -2346,7 +2349,7 @@ _badactors()
     # assumes compute_p4_scores called before _badactors
     [[ "${_score,,}" == "null" ]] && _score="${PHYcheckScores[author]}"
     _phmsg="No, none reported"
-    [[ $(echo "${_score}" "<" "1.00" | bc -l) -eq 1 ]] && _phmsg="${__REDFLAG__}Yes, something reported, investigate"
+    [[ ! "${_score}" == "${__NAN__}" ]] && [[ $(echo "${_score}" "<" "1.00" | bc -l) -eq 1 ]] && _phmsg="${__REDFLAG__}Yes, something reported, investigate"
   else
     _phmsg="no insight from Phylum"
   fi
@@ -2763,7 +2766,9 @@ _phylum_jobStatus()
   [[ "${puri}" != "${__NULLPURI__}" ]] && echo "" && return
 
  _job="$(_phylum_jobId "${1}" "${2}")"
+ [[ -z "${_job/,*/}" ]] && _job=null
  jq -r '.status' "${1}_job_${_job/,*/}.json"
+
  return
 }
 
@@ -2867,7 +2872,7 @@ _phylum_dep_components()
 
   _say "resetting ${4}" && cp /dev/null "${4}" && cp /dev/null "${__tmp_dep_graph}" && component_subdep_rebuild="true";
 
-  _say "getting Phylum analysis job" && _phylum_jobStatus "${1}" "${3}";
+  _say "getting Phylum analysis job" && _phylum_jobStatus "${1}" "${3}" 1>/dev/null 2>&1;
 
   jq -r '.dependencies[]|.id,.repoUrl' "${3}" | \
     while :; do #{
@@ -2976,21 +2981,22 @@ _DIGRAPHEOF
 # if approaching the ratelimit, sleep until
 # the limit is reset (usually an hour at most)
 #
+__RATELIMIT__="$(mktemp -u)"
 waitRateLimit()
 {
   local _l
   _l="${1}";
 
   curl -s -u "notUsed:${GITHUB_AUTH_TOKEN}" \
-    -I https://api.github.com/user/octocat >/tmp/scw_ratelimit.txt 2>&1
+    -I https://api.github.com/user/octocat >"${__RATELIMIT__}" 2>&1
   local _c
-  _c=$(grep ^x-ratelimit-remaining: /tmp/scw_ratelimit.txt|cut -d: -f2|tr -d '\r')
+  _c=$(grep -i ^x-ratelimit-remaining: "${__RATELIMIT__}"|cut -d: -f2|tr -d '\r')
 
   #_say l: ${_l}, c: ${_c}
   if [ "${_c}" -le "${_l}" ]; then
     local _r
     local _s
-    _r=$(grep ^x-ratelimit-reset: /tmp/scw_ratelimit.txt|cut -d: -f2|tr -d '\r')
+    _r=$(grep ^x-ratelimit-reset: "${__RATELIMIT__}"|cut -d: -f2|tr -d '\r')
     _s=$((_r-$(date +%s)))
     if [ ! ${_s} -lt 0 ]; then
       _warn "sleeping ${_s} seconds to due to GitHub ratelimiting, Sleeping..."
@@ -3101,12 +3107,13 @@ _run_scorecard()
     cp /dev/null "${_joutput}"
 
   # sudo redirect is fine here (SC2024)
-  # shellcheck disable=2024
+  # _CAStoreDocker needs to word split (SC2086)
+  # shellcheck disable=2024,2086
   [ ! -s "${_joutput}" ] &&
     _prjurl="https://github.com/${1}" &&
     _say "running scorecard LIVE on ${_prjurl} to ${_joutput}" && 
     waitRateLimit "${_lowerLimit}" &&
-    ${_sudo} docker run --rm \
+    ${_sudo} docker run --rm ${_CAStoreDocker} \
       -e SCORECARD_V6=true \
       -e "GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN}" "${_OSSFSC}" \
       --format=json --show-details \
@@ -3170,11 +3177,12 @@ _run_hipcheck()
     cp /dev/null "${_joutput}"
 
   # sudo redirect is fine here (SC2024)
-  # shellcheck disable=2024
+  # _CAStoreDocker needs to word split (SC2086)
+  # shellcheck disable=2024,2086
   [ ! -s "${_joutput}" ] && 
     _say "running hipcheck on ${_prjurl} to ${_joutput}" && 
     waitRateLimit "${_lowerLimit}" &&
-    ${_sudo} docker run --rm \
+    ${_sudo} docker run --rm ${_CAStoreDocker} \
       -v "${_MITRHCconfig}:/app/config" \
       -v "${_MITRHCscripts}:/app/scripts" \
       -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
@@ -3189,7 +3197,7 @@ _run_hipcheck()
         )
       ) &&
     waitRateLimit "${_lowerLimit}" &&
-    ${_sudo} docker run --rm \
+    ${_sudo} docker run --rm ${_CAStoreDocker} \
       -v "${_MITRHCconfig}:/app/config" \
       -v "${_MITRHCscripts}:/app/scripts" \
       -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
@@ -4340,6 +4348,19 @@ check_runtime()
   [[ -z "${_ossf_critscorecard_ver}" ]] && _warn "could not determine OSSF/criticality_score version" && _ossf_critscorecard_ver="unknown"
 
   #
+  #
+  #
+  [[ -n "${_CAStoreVolume}" ]] \
+    && [[ ! -s "${_CAStoreVolume}" ]] \
+    && _err "certificate store is empty or does not exist" && _rc=1
+
+  [[ -n "${_CAStoreVolume}" ]] \
+    && [[ ! "$(file "${_CAStoreVolume}" | cut -d: -f2)" =~ "PEM certificate" ]] \
+    && _err "certificate store is not in PEM format" && _rc=1
+
+  _info "CA Certificate Trust Store ${_CAStoreVolume} (${_CAStoreDocker})"
+
+  #
   # the env
   # TODO: allow a token to be passed on the CMD line (getopt)
   #       or pulled from secrets
@@ -4851,7 +4872,7 @@ __main__()
   local _rc
 
   ${BoEonly} && ${build_BoE} && {
-    # ! pushd "${component}" && _fatal "working directory for ${component} not found"
+    # ! pushd "${component}" >&"${_fdwarn}" && _fatal "working directory for ${component} not found"
     _say "Only producing the BoE for ${component}";
     if ! produce_BoE "${component}"; then
       _fatal "BoE production failed for ${component}"
@@ -5185,7 +5206,7 @@ __logfil="${__NULLLOG__}"
 
 _cmdline="${0} ${*}"
 
-while getopts "c:f:hlopqvBC:D:G:L:OP:U:VW:" opt; do #{
+while getopts "c:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
   case $opt in
     c) _cache_days="${OPTARG}" ;;
     f) ! _set_bldFlags "${OPTARG}" && _fatal "build_flags: expecting ${_bldFlags}"
@@ -5219,6 +5240,9 @@ while getopts "c:f:hlopqvBC:D:G:L:OP:U:VW:" opt; do #{
          _fatal "expecting a positive integer for scoreTimeout (${scoreTimeout})" 
          [[ ${scoreTimeout,} == "default" ]] && scoreTimeout="${__TIMEOUT__}"
        ;;
+    Z) _CAStoreVolume="${OPTARG}"
+       _CAStoreDocker="-v ${_CAStoreVolume}:/etc/ssl/certs/ca-certificates.crt"
+       ;;
     h|*) cat <<-_OPTSEOF
   USAGE: ${0} [OPTIONS]
 
@@ -5243,6 +5267,8 @@ while getopts "c:f:hlopqvBC:D:G:L:OP:U:VW:" opt; do #{
   -U:  use package URI spec rather than a Phylum.io project name (e.g., npm:@babel/highlight:^7.18.6)
   -V:  display version (and exit)
   -W:  watch docker scorecards run not to exceed time limit (default: ${__TIMEOUT__} seconds)
+  -Z:  specify certificates trust store when required by enterprise-level proxies
+       which may be in use (e.g. -Z '/etc/ssl/certs/ca-certificates.crt')
 
   BUILD FLAGS (-f 'flag1[,flag2,...]')
 
@@ -5295,7 +5321,7 @@ _say "establishing componment working folder ${component}"
 mkdir -p "${component}"
 
 _say "setting current working folder to ${component}"
-pushd "${component}" || _fatal "can't set working folder to ${component}"
+pushd "${component}" >&"${_fdwarn}" || _fatal "can't set working folder to ${component}"
 
 #
 # since 'preMVP 240507a (branch: main)' tidy
