@@ -24,7 +24,7 @@
 # DM24-0786
 # 
  
-readonly _version="pubRel 241003b (branch: publicRelease)"
+readonly _version="pubRel 241006b (branch: publicRelease)"
 
 readonly _CONFSVR="${CONFSVR:=https://confluence.myhost.com:8095/confluence}"
 #
@@ -130,6 +130,17 @@ _get_Conf_page()
   local _key
   local _title
   local _id
+  local _nocreate
+
+  #
+  # by default create the page if it cannot be found
+  _create="true"
+
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --nocreate ]] && _create="false"
+    shift 1
+  done
 
   _key="$(jq -j -r -n --arg fred "${1}" '($fred|@uri)')"
   _title="$(jq -j -r -n --arg fred "${2}" '($fred|@uri)')"
@@ -144,7 +155,7 @@ _get_Conf_page()
 
   _say "page id for ${2} in ${1} is ${_id}"
 
-  [ -z "${_id}" ] && _id="$(_create_Conf_page "${1}" "${2}")"
+  ${_create} && [ -z "${_id}" ] && _id="$(_create_Conf_page "${1}" "${2}")"
 
   [ -z "${_id}" ] && _warn "unable to find or create page ${2} in ${1}" && return 4
 
@@ -211,6 +222,99 @@ _attach_to_Conf_page()
       _err "$(jq -r '.message' "${2}.resp")" && return 2
   fi
 
+  return 0
+}
+
+_get_attachment_Conf_page()
+{
+  local _pgid
+  local _atid
+  local _contains
+  local _suffix
+  local _uri
+  local _outfile
+  local _temp
+  local _checksum="false"
+  local _noclobber="false"
+
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --checksum ]] && _checksum="true"
+    [[ ${1} == --noclobber ]] && _noclobber="true"
+    shift 1
+  done
+
+  _pgid="${1}"
+  _contains="${2}"
+  _suffix="${3}"
+  [[ "${_suffix:0:1}" == '*' ]] && _suffix=""
+
+  _temp="$(mktemp)"
+
+  curl -k --silent --request GET \
+    --header "X-Atlassian-Token: nocheck" \
+    --header "authorization: Bearer ${CONF_PAT}" \
+    --header 'Accept: application/json, text/javascript, */*; q=0.01' \
+    --url "${_CONFSVR}/rest/api/content/${_pgid}/child/attachment" \
+    --output "${_temp}"
+
+  if [[ ! -s "${_temp}" ]]; then
+    _err "failed to curl attachments to pageID: ${_pgid}"
+    rm "${_temp}"
+    return 1
+  fi
+
+  # parse information needed
+
+  _atid="$(jq -r --arg _c "${_contains}" --arg _s "${_suffix}" \
+    '.results[]|select (.title | endswith($_s))|select (.title | contains($_c))|.id' "${_temp}")"
+  [[ -z "${_atid}" ]] && _err "no attachment containing ${_contains} and ending in ${3} were found for pageID: ${_pgid}" && \
+    rm "${_temp}" && return 1;
+
+  _outfile="$(jq -r --arg _c "${_contains}" --arg _s "${_suffix}" \
+    '.results[]|select (.title | endswith($_s))|select (.title | contains($_c))|.title' "${_temp}")"
+  [[ -z "${_outfile}" ]] && _err "attachment ${_atid} has no filename" && \
+    rm "${_temp}" && return 1;
+
+  _uri="$(jq -r --arg _c "${_contains}" --arg _s "${_suffix}" \
+    '.results[]|select (.title | endswith($_s))|select (.title | contains($_c))|._links.download' "${_temp}")"
+  [[ -z "${_uri}" ]] && _err "attachment ${_atid} has no download link" && \
+    rm "${_temp}" && return 1;
+
+  "${_noclobber}" && [[ -s "${_outfile}" ]] && _err "attachment already exists (noclobber): ${_outfile}" && \
+    rm "${_temp}" && return 1;
+
+  #
+  # this naming convention is special in lieu of a secure storage archive at this time
+  #
+  "${_checksum}" && _cksum="$(sed 's/.*boe_sha256://g;s/.tgz$//g' <<<"${_outfile}")"
+
+  _say "getting attachment ${_atid}, ${_outfile}, from ${_uri}"
+
+  # get it
+
+  curl -k --silent --request GET --write-out "%{http_code}" \
+    --header "X-Atlassian-Token: nocheck" \
+    --header "authorization: Bearer ${CONF_PAT}" \
+    --header 'Accept: application/json, text/javascript, */*; q=0.01' \
+    --url "${_CONFSVR}${_uri}" \
+    --output "${_outfile}" | grep -q -E '(^200$)' || { _warn "curl failed: exited ${?} html resp other than 200" && return 1; }
+
+  "${_checksum}" && if [[ -n "${_cksum}" ]]; then
+    _say -n "calculating sha256 checksum...";
+    _ckval="$(sha256sum "${_outfile}" | cut -d\  -f1)"
+    if [[ "${_cksum}" == "${_ckval}" ]]; then
+       _say "match: OK"
+    else
+       _warn "NO MATCH: NG"
+    fi
+  else
+       _warn "cannot determine original file checksum, ignoring --checksum"
+  fi
+
+  _say "${_outfile}: retrieved."
+
+  rm "${_temp}"
   return 0
 }
 
@@ -349,6 +453,8 @@ interactive="false"
 component=
 attachment=
 attachonly=false
+recoverBOE=false
+recoverFILE=""
 
 #
 # errors always go to stderr
@@ -369,7 +475,7 @@ __logfil=""
 
 _cmdline="${0} ${*}"
 
-while getopts "a:hilopqvA:C:S:T:V" opt; do #{
+while getopts "a:hilopqvA:BC:R:S:T:V" opt; do #{
   case $opt in
     a) attachment="${OPTARG}"
        [[ -s "${attachment}" ]] && attachment=$(realpath "${attachment}")
@@ -382,7 +488,9 @@ while getopts "a:hilopqvA:C:S:T:V" opt; do #{
     q) quiet="true" ;;
     v) verbose="true" ;;
     A) _ancestorTitle="${OPTARG}" ;;
+    B) recoverBOE="true" ;;
     C) component="${OPTARG}" ;;
+    R) recoverFILE="${OPTARG}" ;;
     S) _spaceKey="${OPTARG}" ;;
     T) _pageTitle="${OPTARG}" ;;
     V) echo "Version: ${_version} for Server at ${_CONFSVR}" && _fatal "" ;;
@@ -400,11 +508,22 @@ while getopts "a:hilopqvA:C:S:T:V" opt; do #{
   -q:  quiet (overrides verbose, warnings)
   -v:  verbose, not quiet
   -A:  Ancestor page title (default: 'Example OSS Reports')
+  -B:  Download an attached Body of Evidence (default: name containing 'boe_sha256', ending with '.tgz')
   -C:  set local component name/project name (REQUIRED)
+  -R:  Download an attached by a given name
   -S:  Space in Confluence (default: MYDOCS)
        for Confluence Personal Space use '~username'
   -T:  Page Title (default: same as -C with ' auto' appended)
   -V:  display version (and exit)
+
+  DOWNLOAD (-B and -R)
+
+  The attachment to download only applies for the Page specified
+  by -A, -S, and -T and is recoved to the folder specificed by -C.
+
+  The attachment, if already recovered is NOT overwritten (noclobber)
+
+  For -B only, the SHA for the file is verified after download (checksum)
 
 _OPTSEOF
        _fatal ""
@@ -436,6 +555,8 @@ _say "cmdline: ${_cmdline}"
 #
 if ! check_runtime; then _fatal "exiting due to missing runtime requirement(s)"; fi
 
+${recoverBOE} && [[ ! -d "${component}" ]] && mkdir -p "${component}" && _say "Recovery mode, using folder ${component}"
+
 _say "setting current working folder to ${component}"
 pushd "${component}" >&"${_fdwarn}" || _fatal "can't set working folder to ${component}"
 
@@ -454,7 +575,10 @@ mkdir -p logs/
 
 _outfileCache=${component}-vUNK.json
 
-if ! _pageId="$(_get_Conf_page "${_spaceKey}" "${_pageTitle}" "${_outfileCache}")"; then
+_createFlag=""
+{ ${recoverBOE} || [[ -n "${recoverFILE}" ]]; } && _createFlag="--nocreate"
+
+if ! _pageId="$(_get_Conf_page ${_createFlag} "${_spaceKey}" "${_pageTitle}" "${_outfileCache}")"; then
   _fatal "page not found"
 fi
 _say "got pageId=${_pageId} with rc=${?}"
@@ -463,6 +587,28 @@ ${attachonly} && [[ -n "${attachment}" ]] && {
     _say "Only uploading attachment ${attachment}";
     if ! _attach_to_Conf_page "${_pageId}" "${attachment}"; then
       _fatal "attachment failed"
+    fi;
+    _say "done.";
+    [[ -n "${__logfil}" ]] && mv -f "${__logfil}" "./logs/"
+    popd >&"${_fdwarn}" || exit
+    exit 0;
+  }
+
+${recoverBOE} && {
+    _say "Recovering BOE attached to page: ${_pageId}";
+    if ! _get_attachment_Conf_page --checksum --noclobber "${_pageId}" "boe_sha256" ".tgz"; then
+      _fatal "recovery failed"
+    fi;
+    _say "done.";
+    [[ -n "${__logfil}" ]] && mv -f "${__logfil}" "./logs/"
+    popd >&"${_fdwarn}" || exit
+    exit 0;
+  }
+
+[[ -n "${recoverFILE}" ]] && {
+    _say "Recovering FILE attached to page: ${_pageId}";
+    if ! _get_attachment_Conf_page --noclobber "${_pageId}" "${recoverFILE}" '*'; then
+      _fatal "recovery failed"
     fi;
     _say "done.";
     [[ -n "${__logfil}" ]] && mv -f "${__logfil}" "./logs/"
