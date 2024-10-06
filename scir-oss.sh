@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
 #
 
-readonly _version="pubRel 241003b (branch: publicRelease)"
+readonly _version="pubRel 241006b (branch: publicRelease)"
 readonly _OSSFSC="${_OSSFSC:=gcr.io/openssf/scorecard:latest}"
 readonly _OSSFCS="${_OSSFCS:=${HOME}/go/bin/criticality_score}"
 readonly _MITRHC="${_MITRHC:=hipcheck:2022-07-06-delivery}"
@@ -49,7 +49,12 @@ _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
 _CAStoreVolume=
 _CAStoreDocker=
 
-#readonly _MITRHC="hipcheck:2022-07-06-delivery"
+# env var to check json files pulled via curl
+# mostly for debug purposes
+#
+# this does incur overhead runtime when enabled/true
+#
+_debugVerifyCurlJsons="${_debugVerifyCurlJsons:-false}"
 
 #
 # simply utilities
@@ -833,7 +838,26 @@ jq_legacyPhylumScores()
 {
   local __myphyc
 
-  jq -r '.riskScores|to_entries|map("\(.key)=\(.value|tostring)")|.[]' "${1}"
+  __myphyc=$(mktemp -u -p .)
+
+  jq -r 'paths(scalars | true) as $p
+    | [ ( [ $p[] | tostring ] | join(".") ), ( getpath($p) | tojson )] | join(": ")' \
+    "${1}" \
+    | grep "riskScores"  1>"${__myphyc}"
+
+  for _domain in total vulnerability malicious_code author engineering license
+  do
+    echo -n "${_domain}="
+    _s=$(grep -o -E "(riskScores.${_domain}:[[:space:]]?[0-9]+([.][0-9]+)?$)" < "${__myphyc}" \
+      | cut -d: -f2 \
+      | sed 's/^ //g' \
+      | sort -n \
+      | head -1)
+    [[ -z "${_s}" ]] && _s="null"
+    echo "${_s}"
+  done
+
+  rm -f "${__myphyc}"
 
   return 0
 }
@@ -1042,7 +1066,7 @@ _compute_p4_scores()
   local __phyJQ
   local __phyVersion=" (legacy), "
   __phyJQ='jq_legacyPhylumScores'
-  grep -s -q totalRiskScore "${3}" || { __phyJQ='jq_newPhylumScores' && __phyVersion=", "; }
+  grep -s -q -E '(totalRiskScore|total_risk_score)' "${3}" || { __phyJQ='jq_newPhylumScores' && __phyVersion=", "; }
 
   _say -n "PHY${__phyVersion}"
 
@@ -2803,6 +2827,14 @@ _patchIfNeeded()
       grep -q risk_type "${1}" && \
       _say "${1} patching risk_type to be riskType" && \
       sed --in-place=.risk_type 's/risk_type/riskType/g' "${1}"
+
+  "${_debugVerifyCurlJsons}" && { _say -n "Verifying ${1} json...";
+  _rc="OK";
+  jq -r '.' "${1}" > /dev/null || _fatal "Failed";
+  _say "${_rc}";
+  }
+
+  return 0
 }
 
 #
