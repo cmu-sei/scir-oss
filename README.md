@@ -119,11 +119,22 @@ $ ./pub-scir.sh -h
   -q:  quiet (overrides verbose, warnings)
   -v:  verbose, not quiet
   -A:  Ancestor page title (default: 'Example OSS Reports')
+  -B:  Download an attached Body of Evidence (default: name containing 'boe_sha256', ending with '.tgz')
   -C:  set local component name/project name (REQUIRED)
+  -R:  Download an attached by a given name
   -S:  Space in Confluence (default: MYDOCS)
        for Confluence Personal Space use '~username'
   -T:  Page Title (default: same as -C with ' auto' appended)
   -V:  display version (and exit)
+
+  DOWNLOAD (-B and -R)
+
+  The attachment to download only applies for the Page specified
+  by -A, -S, and -T and is recoved to the folder specificed by -C.
+
+  The attachment, if already recovered is NOT overwritten (noclobber)
+
+  For -B only, the SHA for the file is verified after download (checksum)
 ```
 Explaination: TBD
 
