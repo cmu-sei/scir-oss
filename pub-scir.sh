@@ -24,9 +24,18 @@
 # DM24-0786
 # 
  
-readonly _version="pubRel 241006b (branch: publicRelease)"
+readonly _version="pubRel 250211a (branch: publicRelease)"
 
-readonly _CONFSVR="${CONFSVR:=https://confluence.myhost.com:8095/confluence}"
+#
+# check_runtime will confirm these settings
+# if the path does not exist, it will be updated
+# to realpath for arg 0, if that fails _fatal error will
+# be raised
+#
+# TODO: make this 'settings' folder path/name a command line arg
+#
+_PUBSCIRsettings="/vagrant/scir-oss/settings"
+
 #
 # in bytes
 # 0 means no limit
@@ -356,6 +365,21 @@ _get_Page_version()
   return
 }
 
+do_runtime_localizations()
+{
+  # shellcheck disable=1091
+  [[ -f "${_PUBSCIRsettings}/scir-oss/localizations.lib.sh" ]] && source "${_PUBSCIRsettings}/scir-oss/localizations.lib.sh"
+
+  readonly _CONFSVR="${_LOCAL_CONFSVR:-https://confluence.myhost.com:8095/confluence}"
+
+  # only override with local defaults if not provided on the command line
+  [[ -z "${_spaceKey}" ]] && _spaceKey="${_LOCAL_spaceKey:-MYDOCS}"
+  [[ -z "${_ancestorTitle}" ]] && _ancestorTitle="${_LOCAL_ancestorTitle:-Example OSS Supply Chain Reports}"
+
+  return 0;
+}
+
+#
 #
 # will error off if the expected resource and/or values
 # need at runtime are not present or unknown for
@@ -370,6 +394,23 @@ check_runtime()
   local _thingy
 
   _rc=0 # 0 = no error, 1 = non recoverable error
+
+  #
+  # check configs/settings/etc. used during runtime
+  # TODO: yaml all this stuff
+  #
+  [[ ! -d "${_PUBSCIRsettings}" ]] && {
+    if [[ ! -d "$(dirname "$(realpath "${0}")")/settings" ]]; then
+      _err "No settings directory found: ${_PUBSCIRsettings}"
+      _rc=1
+    else
+      _PUBSCIRsettings="$(dirname "$(realpath "${0}")")/settings"
+    fi
+  }
+
+  # localizations are for organization dependent nomenclature,
+  # and local runtime constraints (binaries, containers, etc.)
+  do_runtime_localizations "${_PUBSCIRsettings}"
 
   #
   # the binaries
@@ -467,9 +508,12 @@ _fdwarn=2
 #
 _fdverbose=/dev/null
 
-_spaceKey="MYDOCS"
+_DEFspaceKey="MYDOCS"
+_DEFancestorTitle="Example OSS Supply Chain Reports"
+
+_spaceKey=""
 _pageTitle=""
-_ancestorTitle="Example OSS Reports"
+_ancestorTitle=""
 __logger="cat"
 __logfil=""
 
@@ -507,11 +551,11 @@ while getopts "a:hilopqvA:BC:R:S:T:V" opt; do #{
   -p:  preserve local working files and responses (for testing)
   -q:  quiet (overrides verbose, warnings)
   -v:  verbose, not quiet
-  -A:  Ancestor page title (default: 'Example OSS Reports')
+  -A:  Ancestor page title (default: '${_DEFancestorTitle}')
   -B:  Download an attached Body of Evidence (default: name containing 'boe_sha256', ending with '.tgz')
   -C:  set local component name/project name (REQUIRED)
   -R:  Download an attached by a given name
-  -S:  Space in Confluence (default: MYDOCS)
+  -S:  Space in Confluence (default: ${_DEFspaceKey})
        for Confluence Personal Space use '~username'
   -T:  Page Title (default: same as -C with ' auto' appended)
   -V:  display version (and exit)

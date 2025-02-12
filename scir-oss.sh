@@ -30,10 +30,8 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
 #
 
-readonly _version="pubRel 241006b (branch: publicRelease)"
-readonly _OSSFSC="${_OSSFSC:=gcr.io/openssf/scorecard:latest}"
-readonly _OSSFCS="${_OSSFCS:=${HOME}/go/bin/criticality_score}"
-readonly _MITRHC="${_MITRHC:=hipcheck:2022-07-06-delivery}"
+readonly _version="pubRel 250211a (branch: publicRelease)"
+
 #
 # check_runtime will confirm these settings
 # if the path does not exist, it will be updated
@@ -1804,14 +1802,14 @@ _day_first()
 
 _org_type()
 {
-  local _duns
+  local _orgCode
 
-  _duns=""
+  _orgCode=""
   ${__ghSKIP} && echo "Unknown, project is not on GitHub" && return
 
-  [[ $(jq -j '.owner.type' "${1}") == "Organization" ]] && _duns=" <br/>logistics database D-U-N-S code: Manual"
+  [[ $(jq -j '.owner.type' "${1}") == "Organization" ]] && _orgCode=" <br/>${ORGLOOKUP_LABEL}: Manual"
 
-  echo "Pending, see: $(jq -r '.owner.organizations_url' "${1}")${_duns}"
+  echo "Pending, see: $(jq -r '.owner.organizations_url' "${1}")${_orgCode}"
   return
 }
 
@@ -2585,6 +2583,8 @@ _dig4subdep()
   # don't dig from 0, already for the primary (level 1) deps
   #
   [ "${_lev}" -eq 0 ] && _say "reached limit imposed at level ${_lev} returning..." && return
+  # don't dig past dependencyDepth (-d)
+  [[ ${dependencyDepth} != "all" ]] && [[ "${_lev}" -ge ${dependencyDepth} ]] && _warn "dependency depth limit: found level ${_lev} skipping ${_c} returning..." && return
   #
   # TODO: fix/understand npm dependencies, this algorithm seemingly
   #       goes on forever - just stick to two levels until this is
@@ -3209,7 +3209,7 @@ _run_hipcheck()
     cp /dev/null "${_joutput}"
 
   # sudo redirect is fine here (SC2024)
-  # _CAStoreDocker needs to word split (SC2086)
+  # _CAStoreDocker, __MITRHCquiet, _MITRHCrepoCmd, _MITRHCjson need to word split (SC2086)
   # shellcheck disable=2024,2086
   [ ! -s "${_joutput}" ] && 
     _say "running hipcheck on ${_prjurl} to ${_joutput}" && 
@@ -3218,8 +3218,8 @@ _run_hipcheck()
       -v "${_MITRHCconfig}:/app/config" \
       -v "${_MITRHCscripts}:/app/scripts" \
       -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
-      -q \
-      check repo "${_prjurl}" > "${_toutput}" 2>&1 &&
+      ${_MITRHCquiet} \
+      ${_MITRHCrepoCmd} "${_prjurl}" > "${_toutput}" 2>&1 &&
       (
         grep -E risk\ rated "${_toutput}" >/dev/null ||
         (
@@ -3233,9 +3233,9 @@ _run_hipcheck()
       -v "${_MITRHCconfig}:/app/config" \
       -v "${_MITRHCscripts}:/app/scripts" \
       -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
-      -j \
-      -q \
-      check repo "${_prjurl}" > "${_joutput}" &&
+      ${_MITRHCjson} \
+      ${_MITRHCquiet} \
+      ${_MITRHCrepoCmd} "${_prjurl}" > "${_joutput}" &&
       ( # mangle the json output to include the rationale from txt file
         head -n -2 "${_joutput}" ; 
         b64=$(base64 -w 0 "${_toutput}") ; 
@@ -4293,6 +4293,21 @@ check_scir_files()
   return "${_rc}"
 }
 
+do_runtime_localizations()
+{
+  # shellcheck disable=1091
+  [[ -f "${_OSSSCIRsettings}/scir-oss/localizations.lib.sh" ]] && source "${_OSSSCIRsettings}/scir-oss/localizations.lib.sh"
+
+  readonly _OSSFSC="${_LOCAL_OSSFSC:-gcr.io/openssf/scorecard:latest}"
+  readonly _OSSFCS="${_LOCAL_OSSFCS:-${HOME}/go/bin/criticality_score}"
+  readonly _MITRHC="${_LOCAL_MITRHC:-mitre/hipcheck:latest}"
+
+  ORGLOOKUP_LABEL="${_LOCAL_ORGLOOKUP_LABEL:-logistics database D-U-N-S code}"
+  ORGLOOKUP_ID="${_LOCAL_ORGLOOKUP_ID:-Org_type_DUNS_code}"
+
+  return 0;
+}
+
 #
 # will error off if the expected resource and/or values
 # need at runtime are not present or unknown for
@@ -4302,6 +4317,26 @@ check_scir_files()
 check_runtime()
 {
   _rc=0 # 0 = no error, 1 = non recoverable error
+
+  #
+  # check configs/settings/etc. used during runtime
+  # TODO: yaml all this stuff
+  #
+  [[ ! -d "${_OSSSCIRsettings}" ]] && {
+    if [[ ! -d "$(dirname "$(realpath "${0}")")/settings" ]]; then
+      _err "No settings directory found: ${_OSSSCIRsettings}"
+      _rc=1
+    else
+      _OSSSCIRsettings="$(dirname "$(realpath "${0}")")/settings"
+      _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
+      _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
+      _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
+    fi
+  }
+
+  # localizations are for organization dependent nomenclature,
+  # and local runtime constraints (binaries, containers, etc.)
+  do_runtime_localizations "${_OSSSCIRsettings}"
 
   #
   # the binaries
@@ -4332,22 +4367,6 @@ check_runtime()
       _rc=1
   done
 
-  #
-  # check configs/settings/etc. used during runtime
-  # TODO: yaml all this stuff
-  #
-  [[ ! -d "${_OSSSCIRsettings}" ]] && {
-    if [[ ! -d "$(dirname "$(realpath "${0}")")/settings" ]]; then
-      _err "No settings directory found: ${_OSSSCIRsettings}"
-      _rc=1
-    else
-      _OSSSCIRsettings="$(dirname "$(realpath "${0}")")/settings"
-      _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
-      _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
-      _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
-    fi
-  }
-
   local -n _sp
   for _sp in _MITRHCconfig _MITRHCscripts _OSSSCIRlicenseDB
   do
@@ -4372,6 +4391,18 @@ check_runtime()
 
   _mitre_hipcheck_ver="$(${_sudo} docker run --rm "${_MITRHC}" --version | cut -d\  -f2)"
   [[ -z "${_mitre_hipcheck_ver}" ]] && _warn "could not determine MITRE Hipcheck version" && _mitre_hipcheck_ver="unknown"
+  # assume latest
+  _MITRHCquiet="--verbosity quiet"
+  _MITRHCjson="--format json"
+  _MITRHCrepoCmd="check"
+  case "${_mitre_hipcheck_ver}" in
+    3.1.*)
+       _MITRHCquiet="${_MITRHCquiet/verbosity /}"
+       _MITRHCjson="${_MITRHCjson/format /}"
+       _MITRHCrepoCmd="${_MITRHCrepoCmd/check/check repo}"
+       ;;
+    *) ;;
+  esac
 
   _phylum_ver="$(phylum --version | cut -d\  -f2)"
   [[ -z "${_phylum_ver}" ]] && _warn "could not determine Phylum CLI version" && _phylum_ver="unknown"
@@ -4734,7 +4765,7 @@ _compile_json_p4report()
    "risk": ""
  },
  {
-   "id": "Org_type_DUNS_code",
+   "id": "${ORGLOOKUP_ID}",
    "value": "$(_org_type "${__ghrjson}")",
    "label": "Organization Type",
    "risk": "project is managed by an individual rather than a more formal organization for support"
@@ -4848,9 +4879,9 @@ _compile_json_p4report()
    "risk": ""
  },
  {
-   "id": "Metadata_cardDepth",
-   "value": "${scoreDepth}",
-   "label": "Score depth",
+   "id": "Metadata_depths",
+   "value": "${dependencyDepth}, ${scoreDepth}",
+   "label": "Dependency and Score depth",
    "risk": ""
  },
  {
@@ -5213,6 +5244,7 @@ newScores="false"
 do_reports="false"
 quiet="false"
 verbose="false"
+dependencyDepth="all"
 scoreDepth=0
 scoreTimeout=""
 
@@ -5238,9 +5270,14 @@ __logfil="${__NULLLOG__}"
 
 _cmdline="${0} ${*}"
 
-while getopts "c:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
+while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
   case $opt in
     c) _cache_days="${OPTARG}" ;;
+    d) dependencyDepth="${OPTARG}"
+       ! [[ ${dependencyDepth} =~ ^[0-9]+$ ]] && \
+         [[ ${dependencyDepth} != "all" ]] && \
+         _fatal "expecting a positive integer for dependencyDepth (${dependencyDepth})"
+       ;;
     f) ! _set_bldFlags "${OPTARG}" && _fatal "build_flags: expecting ${_bldFlags}"
        ;;
     l) __logfil="run-$(date +%Y%m%d-%H%M%S).log" ;;
@@ -5281,6 +5318,7 @@ while getopts "c:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
   OPTIONS
 
   -c:  set number of days for cache staleness check (default: 2)
+  -d:  set depth number on dependencies to dig into (default: all (no limit))
   -f:  force rebuild (overrides -p) of all or specific(s) caches, scores, reports or other data
        comma separate being ${_bldFlags}
   -h:  this message (and exit)

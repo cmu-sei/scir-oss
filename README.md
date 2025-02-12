@@ -37,7 +37,7 @@ Essentially, ```scir-oss.sh```, (2), Invokes tools and queries data from public 
 
 After obtaining those indicators, ```scir-oss.sh```:
 * Correlates results according to stakeholder criteria
-* Flags potential concerns based on MY thresholds and goals
+* Flags potential concerns based on thresholds and goals
 * Normalizes scoring and rolls up results
   * 4 “P(s)”
   * DoD CIO’s criteria
@@ -64,6 +64,7 @@ $ ./scir-oss.sh -h
   OPTIONS
 
   -c:  set number of days for cache staleness check (default: 2)
+  -d:  set depth number on dependencies to dig into (default: all (no limit))
   -f:  force rebuild (overrides -p) of all or specific(s) caches, scores, reports or other data
        comma separate being 'all', or one or more of: cards,caches,deps,subdeps,meta,crit,scard,hcheck,scores,issues,job
   -h:  this message (and exit)
@@ -118,7 +119,7 @@ $ ./pub-scir.sh -h
   -p:  preserve local working files and responses (for testing)
   -q:  quiet (overrides verbose, warnings)
   -v:  verbose, not quiet
-  -A:  Ancestor page title (default: 'Example OSS Reports')
+  -A:  Ancestor page title (default: 'Example OSS Supply Chain Reports')
   -B:  Download an attached Body of Evidence (default: name containing 'boe_sha256', ending with '.tgz')
   -C:  set local component name/project name (REQUIRED)
   -R:  Download an attached by a given name
@@ -147,7 +148,7 @@ Explaination: TBD
 ```
 * To publish that OSS-P4/R
 ```
-./pub-scir.sh -l -v -C fleetth -T 'Fleet TH' -S MYDOCS -A 'Scratch Test Area'
+./pub-scir.sh -l -v -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area'
 ```
 
 #### A made-up (local) project previously analyzed by Phylum.io (not on GitHub)
@@ -177,7 +178,7 @@ Explaination: TBD
 ```
 * To archive/publish that BoE
 ```
-./pub-scir.sh -C fleetth -T fleet -C fleetth -T 'Fleet TH' -S MYDOCS -A 'Scratch Test Area' -o -a fleetth-scir-p4r-boe_sha256:<insert specific hash>.tgz
+./pub-scir.sh -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area' -o -a fleetth-scir-p4r-boe_sha256:<insert specific hash>.tgz
 ```
 ### Example
 #### Generated Files
@@ -416,7 +417,7 @@ curl 7.68.0
 
 ```
 gcr.io/openssf/scorecard:latest
-hipcheck:2022-07-06-delivery
+mitre/hipcheck:latest (version 3.3.1) or hipcheck:2022-07-06-delivery (version 3.1.0)
 ```
 
 ### Environment and Personal Access Tokens
