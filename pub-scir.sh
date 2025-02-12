@@ -368,7 +368,7 @@ _get_Page_version()
 do_runtime_localizations()
 {
   # shellcheck disable=1091
-  [[ -f "${_PUBSCIRsettings}/scir-oss/localizations.lib.sh" ]] && source "${_PUBSCIRsettings}/scir-oss/localizations.lib.sh"
+  [[ -f "${_PUBSCIRsettings}/pub-scir/localizations.lib.sh" ]] && source "${_PUBSCIRsettings}/pub-scir/localizations.lib.sh"
 
   readonly _CONFSVR="${_LOCAL_CONFSVR:-https://confluence.myhost.com:8095/confluence}"
 
@@ -473,8 +473,11 @@ check_runtime()
     401) _rc=1 && _err CONF_PAT: appears to be no good, refresh your Confluence PAT
          ;;
     200) [ "$(jq -r '.spaces[0].key' "${_temp}")" = "null" ] && _rc=1 && _err "bad ${_thingy}: ${_spaceKey}"
+         [ ! "$(jq -r '.spaces[0].key' "${_temp}")" = "null" ] && _say "confirmed ${_spaceKey} is available using your Confluence PAT"
          ;;
-    *) _say "confirmed ${_spaceKey} is available using your Confluence PAT"
+    000) _rc=1 && _err "_CONFSVR: '${_CONFSVR}' appears to be an invalid host"
+         ;;
+    *) _warn "confirmed ${_spaceKey} maybe available using your Confluence PAT"
          ;;
   esac
 
