@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
 #
 
-readonly _version="pubRel 250211a (branch: publicRelease)"
+readonly _version="pubRel 250310a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -2685,12 +2685,15 @@ _dig4subdep()
 
 _phylum_prjId()
 {
-  [[ "${puri}" != "${__NULLPURI__}" ]] && echo "${puri}" && return
+  local _prj="${1}";
+  export _prj;
 
-  _prj="${1}" jq -r '
+  [[ "${puri}" != "${__NULLPURI__}" ]] && echo "Package URI: ${puri}" && return
+
+  echo "Phylum Project ID: $(jq -r '                
     .values[] | select(.name==env._prj) | 
       [ .name,.id ] | @csv' "${2}" | \
-    cut -d, -f2 | sed 's/"//g'
+    cut -d, -f2 | sed 's/"//g')"
 }
 
 #
@@ -2811,7 +2814,7 @@ _phylum_jobReport()
 
   [[ "${_status}" == "incomplete" ]] && _status="${__REDFLAG__}${_status}"
 
-  echo "${_jobUpdated/,/ updated at } (${_status})"
+  echo "Phylum Job last ${_jobUpdated/,/ updated at } (${_status})"
 }
 
 #
@@ -4295,6 +4298,8 @@ check_scir_files()
 
 do_runtime_localizations()
 {
+  local _rc=0
+
   # shellcheck disable=1091
   [[ -f "${_OSSSCIRsettings}/scir-oss/localizations.lib.sh" ]] && source "${_OSSSCIRsettings}/scir-oss/localizations.lib.sh"
 
@@ -4302,9 +4307,27 @@ do_runtime_localizations()
   readonly _OSSFCS="${_LOCAL_OSSFCS:-${HOME}/go/bin/criticality_score}"
   readonly _MITRHC="${_LOCAL_MITRHC:-mitre/hipcheck:latest}"
 
-  ORGLOOKUP_LABEL="${_LOCAL_ORGLOOKUP_LABEL:-logistics database D-U-N-S code}"
-  ORGLOOKUP_ID="${_LOCAL_ORGLOOKUP_ID:-Org_type_DUNS_code}"
+  _LOCAL_LANG="${_LOCAL_LANG:-en}"
+  _LOCAL_CRITERIA_DESC="${_LOCAL_CRITERIA_DESC:=reportWriter_criteria_desc.lib.sh.${_LOCAL_LANG}}"
 
+  ! [[ ${_LOCAL_CRITERIA_DESC:0:1} == '/' ]] && _LOCAL_CRITERIA_DESC="${_OSSSCIRsettings}/scir-oss/${_LOCAL_CRITERIA_DESC}"
+
+  # language localizations are now necessary as _reportWriter uses them
+  #
+  [[ ! -f "${_LOCAL_CRITERIA_DESC}" ]] && _err "reportWriter localizations '${_LOCAL_CRITERIA_DESC}': not found" &&
+    return 1
+
+  ! bash -n "${_LOCAL_CRITERIA_DESC}" 1>/tmp/${$}.out 2>/tmp/${$}.err &&
+    _err "reportWriter localizations '${_LOCAL_CRITERIA_DESC}': bash syntax error" &&
+      cat /tmp/${$}.err && rm -f "/tmp/${$}.out" "/tmp/${$}.err" &&
+      return 1
+
+  rm -f "/tmp/${$}.out" "/tmp/${$}.err"
+  # shellcheck disable=1090
+  source "${_LOCAL_CRITERIA_DESC}"
+
+  ORGLOOKUP_LABEL="${_LOCAL_ORG_TYPE_LOOKUP_LABEL:-logistics database D-U-N-S code}"
+  
   return 0;
 }
 
@@ -4336,7 +4359,7 @@ check_runtime()
 
   # localizations are for organization dependent nomenclature,
   # and local runtime constraints (binaries, containers, etc.)
-  do_runtime_localizations "${_OSSSCIRsettings}"
+  ! do_runtime_localizations "${_OSSSCIRsettings}" && _rc=1
 
   #
   # the binaries
@@ -4537,370 +4560,431 @@ _compile_json_p4report()
 {
  "reportWriter": [
  {
-   "id": "Section___OSS_Project_Overview",
+   "id": "${_LOCAL_SECTION___OSS_PROJECT_OVERVIEW_ID}",
    "value": "${__SECTION__}",
-   "label": "Overview",
-   "risk": ""
+   "label": "${_LOCAL_SECTION___OSS_PROJECT_OVERVIEW_LABEL}",
+   "description": "${_LOCAL_SECTION___OSS_PROJECT_OVERVIEW_DESC}",
+   "risk": "${_LOCAL_SECTION___OSS_PROJECT_OVERVIEW_RISK}"
  },
  {
-   "id": "Background",
+   "id": "${_LOCAL_BACKGROUND_ID}",
    "value": "$(_background "${__ghrjson}")",
-   "label": "Background",
-   "risk": ""
+   "label": "${_LOCAL_BACKGROUND_LABEL}",
+   "description": "${_LOCAL_BACKGROUND_DESC}",
+   "risk": "${_LOCAL_BACKGROUND_RISK}"
  },
  {
-   "id": "App_Library",
+   "id": "${_LOCAL_APP_LIBRARY_ID}",
    "value": "Manual (ask)",
-   "label": "Application or Library",
-   "risk": "context of use"
+   "label": "${_LOCAL_APP_LIBRARY_LABEL}",
+   "description": "${_LOCAL_APP_LIBRARY_DESC}",
+   "risk": "${_LOCAL_APP_LIBRARY_RISK}"
  },
  {
-   "id": "Current_as_of",
+   "id": "${_LOCAL_CURRENT_AS_OF_ID}",
    "value": "Date: $(date +%m-%d-%Y) (project queried $(_as_of "${__ghrjson}"))",
-   "label": "Current as of",
-   "risk": ""
+   "label": "${_LOCAL_CURRENT_AS_OF_LABEL}",
+   "description": "${_LOCAL_CURRENT_AS_OF_DESC}",
+   "risk": "${_LOCAL_CURRENT_AS_OF_RISK}"
  },
  {
-   "id": "OSSP4R_Outlook",
+   "id": "${_LOCAL_OSSP4R_OUTLOOK_ID}",
    "value": "$(_p4_outlook "${_SCcard}" "${_HCcard}" "${__component_prds}" | sed 's/"/\\"/g' | tr -d '\n\r')",
-   "label": "OSS-P4/R Outlook",
-   "risk": ""
+   "label": "${_LOCAL_OSSP4R_OUTLOOK_LABEL}",
+   "description": "${_LOCAL_OSSP4R_OUTLOOK_DESC}",
+   "risk": "${_LOCAL_OSSP4R_OUTLOOK_RISK}"
  },
  {
-   "id": "DODCIO_Criteria",
+   "id": "${_LOCAL_DODCIO_CRITERIA_ID}",
    "value": "$(_cio_criteria "${_SCcard}" "${_HCcard}" "${__component_prds}" | sed 's/"/\\"/g' | tr -d '\n\r')",
-   "label": "DOD CIO Criteria",
-   "risk": ""
+   "label": "${_LOCAL_DODCIO_CRITERIA_LABEL}",
+   "description": "${_LOCAL_DODCIO_CRITERIA_DESC}",
+   "risk": "${_LOCAL_DODCIO_CRITERIA_RISK}"
  },
  {
-   "id": "Summarized_Scores_By_Criteria",
+   "id": "${_LOCAL_SUMMARIZED_SCORES_BY_CRITERIA_ID}",
    "value": "$(_summary_scores_criteria_tbl | sed 's/"/\\"/g' | tr -d '\n\r')",
-   "label": "Summarized Scores By CIO Criteria",
-   "risk": ""
+   "label": "${_LOCAL_SUMMARIZED_SCORES_BY_CRITERIA_LABEL}",
+   "description": "${_LOCAL_SUMMARIZED_SCORES_BY_CRITERIA_DESC}",
+   "risk": "${_LOCAL_SUMMARIZED_SCORES_BY_CRITERIA_RISK}"
  },
  {
-   "id": "Section___Security",
+   "id": "${_LOCAL_SECTION___SECURITY_ID}",
    "value": "${__SECTION__}",
-   "label": "Security",
-   "risk": "Considers "
+   "label": "${_LOCAL_SECTION___SECURITY_LABEL}",
+   "description": "${_LOCAL_SECTION___SECURITY_DESC}",
+   "risk": "${_LOCAL_SECTION___SECURITY_RISK}"
  },
  {
-   "id": "Trusted_Source",
-   "value": "Source: ${__gh}<br/>DCARS Availability: Manual<br/>Repo or Mirror: Manual",
-   "label": "Trusted Source(s)",
-   "risk": "project is a copy of a source code management system that is not visibile to the public."
+   "id": "${_LOCAL_TRUSTED_SOURCE_ID}",
+   "value": "Source: ${__gh}<br/>${_LOCAL_TRUSTED_SOURCE_NAME_LABEL} Availability: Manual<br/>Repo or Mirror: Manual",
+   "label": "${_LOCAL_TRUSTED_SOURCE_LABEL}",
+   "description": "${_LOCAL_TRUSTED_SOURCE_DESC}",
+   "risk": "${_LOCAL_TRUSTED_SOURCE_RISK}"
  },
  {
-   "id": "Public_private",
+   "id": "${_LOCAL_PUBLIC_PRIVATE_ID}",
    "value": "$(_pub_priv "${__ghrjson}")",
-   "label": "Public or Private",
-   "risk": ""
+   "label": "${_LOCAL_PUBLIC_PRIVATE_LABEL}",
+   "description": "${_LOCAL_PUBLIC_PRIVATE_DESC}",
+   "risk": "${_LOCAL_PUBLIC_PRIVATE_RISK}"
  },
  {
-   "id": "Fully_unrestricted",
+   "id": "${_LOCAL_FULLY_UNRESTRICTED_ID}",
    "value": "$(_unrestricted "${__ghrjson}")",
-   "label": "Fully Unrestricted",
-   "risk": ""
+   "label": "${_LOCAL_FULLY_UNRESTRICTED_LABEL}",
+   "description": "${_LOCAL_FULLY_UNRESTRICTED_DESC}",
+   "risk": "${_LOCAL_FULLY_UNRESTRICTED_RISK}"
  },
  {
-   "id": "Login_credentials",
+   "id": "${_LOCAL_LOGIN_CREDENTIALS_ID}",
    "value": "$(_login_cred "${__ghrjson}")",
-   "label": "Login Credentials",
-   "risk": ""
+   "label": "${_LOCAL_LOGIN_CREDENTIALS_LABEL}",
+   "description": "${_LOCAL_LOGIN_CREDENTIALS_DESC}",
+   "risk": "${_LOCAL_LOGIN_CREDENTIALS_RISK}"
  },
  {
-   "id": "Use_Repo_Protections",
+   "id": "${_LOCAL_USE_REPO_PROTECTIONS_ID}",
    "value": "$(_repo_protections "${_SCcard}")",
-   "label": "Use of Repository Protections",
-   "risk": "vulnerable to intentional malicious code injection, repository compromise"
+   "label": "${_LOCAL_USE_REPO_PROTECTIONS_LABEL}",
+   "description": "${_LOCAL_USE_REPO_PROTECTIONS_DESC}",
+   "risk": "${_LOCAL_USE_REPO_PROTECTIONS_RISK}"
  },
  {
-   "id": "Has_Large_Commits",
+   "id": "${_LOCAL_HAS_LARGE_COMMITS_ID}",
    "value": "$(_large_commits "${_SCcard}" "${_HCcard}") (Churn)",
-   "label": "Large Commits",
-   "risk": "large commits may increase the risk of successful malicious contribution"
+   "label": "${_LOCAL_HAS_LARGE_COMMITS_LABEL}",
+   "description": "${_LOCAL_HAS_LARGE_COMMITS_DESC}",
+   "risk": "${_LOCAL_HAS_LARGE_COMMITS_RISK}"
  },
  {
-   "id": "Obfuscated_Code",
+   "id": "${_LOCAL_OBFUSCATED_CODE_ID}",
    "value": "$(_obscure_code "${_SCcard}" "${_HCcard}") (Entropy)",
-   "label": "Obfuscated Code",
-   "risk": "presence of packed malware or obfuscated code could carry malicious content"
+   "label": "${_LOCAL_OBFUSCATED_CODE_LABEL}",
+   "description": "${_LOCAL_OBFUSCATED_CODE_DESC}",
+   "risk": "${_LOCAL_OBFUSCATED_CODE_RISK}"
  },
  {
-   "id": "Have_Binary_Artifacts",
+   "id": "${_LOCAL_HAVE_BINARY_ARTIFACTS_ID}",
    "value": "$(_binary_artifacts "${_SCcard}" "${_HCcard}")",
-   "label": "Binary Artifact(s)",
-   "risk": "Non-reviewable code"
+   "label": "${_LOCAL_HAVE_BINARY_ARTIFACTS_LABEL}",
+   "description": "${_LOCAL_HAVE_BINARY_ARTIFACTS_DESC}",
+   "risk": "${_LOCAL_HAVE_BINARY_ARTIFACTS_RISK}"
  },
  {
-   "id": "Typosquatting_Risk",
+   "id": "${_LOCAL_TYPOSQUATTING_RISK_ID}",
    "value": "$(_typo_risk "${component}_allIssues.json" "${_SCcard}" "${_HCcard}")",
-   "label": "Typosquatting Risk",
-   "risk": "typos for known names can be used to subtly inject malware through dependencies and confusion"
+   "label": "${_LOCAL_TYPOSQUATTING_RISK_LABEL}",
+   "description": "${_LOCAL_TYPOSQUATTING_RISK_DESC}",
+   "risk": "${_LOCAL_TYPOSQUATTING_RISK_RISK}"
  },
  {
-   "id": "Eng_Risk",
+   "id": "${_LOCAL_ENG_RISK_ID}",
    "value": "$(_eng_risk "${component}_allIssues.json")",
-   "label": "Engineering Risk",
-   "risk": ""
+   "label": "${_LOCAL_ENG_RISK_LABEL}",
+   "description": "${_LOCAL_ENG_RISK_DESC}",
+   "risk": "${_LOCAL_ENG_RISK_RISK}"
  },
  {
-   "id": "Malicious_Code",
+   "id": "${_LOCAL_MALICIOUS_CODE_ID}",
    "value": "$(_mal_code "${component}_allIssues.json")",
-   "label": "Malicious Code",
-   "risk": ""
+   "label": "${_LOCAL_MALICIOUS_CODE_LABEL}",
+   "description": "${_LOCAL_MALICIOUS_CODE_DESC}",
+   "risk": "${_LOCAL_MALICIOUS_CODE_RISK}"
  },
  {
-   "id": "Vuln_Check",
+   "id": "${_LOCAL_VULN_CHECK_ID}",
    "value": "$(_vul_check "${component}_allIssues.json" "${_SCcard}")",
-   "label": "Known Vulnerabilities",
-   "risk": ""
+   "label": "${_LOCAL_VULN_CHECK_LABEL}",
+   "description": "${_LOCAL_VULN_CHECK_DESC}",
+   "risk": "${_LOCAL_VULN_CHECK_RISK}"
  },
  {
-   "id": "Section___Integrity",
+   "id": "${_LOCAL_SECTION___INTEGRITY_ID}",
    "value": "${__SECTION__}",
-   "label": "Integrity",
-   "risk": "Considers "
+   "label": "${_LOCAL_SECTION___INTEGRITY_LABEL}",
+   "description": "${_LOCAL_SECTION___INTEGRITY_DESC}",
+   "risk": "${_LOCAL_SECTION___INTEGRITY_RISK}"
  },
  {
-   "id": "Conduct_Peer_Reviews",
+   "id": "${_LOCAL_CONDUCT_PEER_REVIEWS_ID}",
    "value": "$(_peer_reviews "${_SCcard}" "${_HCcard}")",
-   "label": "Peer Reviews",
-   "risk": ""
+   "label": "${_LOCAL_CONDUCT_PEER_REVIEWS_LABEL}",
+   "description": "${_LOCAL_CONDUCT_PEER_REVIEWS_DESC}",
+   "risk": "${_LOCAL_CONDUCT_PEER_REVIEWS_RISK}"
  },
  {
-   "id": "Use_Code_Security_Scanners",
+   "id": "${_LOCAL_USE_CODE_SECURITY_SCANNERS_ID}",
    "value": "$(_code_scanners "${_SCcard}" "${_HCcard}")",
-   "label": "Use of Code and Security Scanners",
-   "risk": ""
+   "label": "${_LOCAL_USE_CODE_SECURITY_SCANNERS_LABEL}",
+   "description": "${_LOCAL_USE_CODE_SECURITY_SCANNERS_DESC}",
+   "risk": "${_LOCAL_USE_CODE_SECURITY_SCANNERS_RISK}"
  },
  {
-   "id": "Signed_Commits",
+   "id": "${_LOCAL_SIGNED_COMMITS_ID}",
    "value": "Manual",
-   "label": "Signed Commits",
-   "risk": ""
+   "label": "${_LOCAL_SIGNED_COMMITS_LABEL}",
+   "description": "${_LOCAL_SIGNED_COMMITS_DESC}",
+   "risk": "${_LOCAL_SIGNED_COMMITS_RISK}"
  },
  {
-   "id": "Crypto_Signed_Commits",
+   "id": "${_LOCAL_CRYPTO_SIGNED_COMMITS_ID}",
    "value": "Manual",
-   "label": "Cryptographically Signed Commits",
-   "risk": ""
+   "label": "${_LOCAL_CRYPTO_SIGNED_COMMITS_LABEL}",
+   "description": "${_LOCAL_CRYPTO_SIGNED_COMMITS_DESC}",
+   "risk": "${_LOCAL_CRYPTO_SIGNED_COMMITS_RISK}"
  },
  {
-   "id": "Crypto_Signed_Releases_Artifacts",
+   "id": "${_LOCAL_CRYPTO_SIGNED_RELEASES_ARTIFACTS_ID}",
    "value": "$(_signed_releases "${_SCcard}")",
-   "label": "Cryptographically Signed Releases &amp; Artifacts",
-   "risk": ""
+   "label": "${_LOCAL_CRYPTO_SIGNED_RELEASES_ARTIFACTS_LABEL}",
+   "description": "${_LOCAL_CRYPTO_SIGNED_RELEASES_ARTIFACTS_DESC}",
+   "risk": "${_LOCAL_CRYPTO_SIGNED_RELEASES_ARTIFACTS_RISK}"
  },
  {
-   "id": "Section___Dependencies",
+   "id": "${_LOCAL_SECTION___DEPENDENCIES_ID}",
    "value": "${__SECTION__}",
-   "label": "Dependencies",
-   "risk": "Considers "
+   "label": "${_LOCAL_SECTION___DEPENDENCIES_LABEL}",
+   "description": "${_LOCAL_SECTION_DEPENDENCIES___DESC}",
+   "risk": "${_LOCAL_SECTION___DEPENDENCIES_RISK}"
  },
  {
-   "id": "SBOM",
+   "id": "${_LOCAL_SBOM_ID}",
    "value": "$(_sbom_val "${__ghrsbomjson}")",
-   "label": "Published Software Bill of Materials",
-   "risk": ""
+   "label": "${_LOCAL_SBOM_LABEL}",
+   "description": "${_LOCAL_SBOM_DESC}",
+   "risk": "${_LOCAL_SBOM_RISK}"
  },
  {
-   "id": "Dependencies_pinned",
+   "id": "${_LOCAL_DEPENDENCIES_PINNED_ID}",
    "value": "$(_dep_pinned "${_SCcard}")",
-   "label": "Dependencies Pinned to Version",
-   "risk": ""
+   "label": "${_LOCAL_DEPENDENCIES_PINNED_LABEL}",
+   "description": "${_LOCAL_DEPENDENCIES_PINNED_DESC}",
+   "risk": "${_LOCAL_DEPENDENCIES_PINNED_RISK}"
  },
  {
-   "id": "Dependencies_up_to_date",
+   "id": "${_LOCAL_DEPENDENCIES_UP_TO_DATE_ID}",
    "value": "$(_dep_up2date "${_SCcard}")",
-   "label": "Dependencies Up to Date",
-   "risk": ""
+   "label": "${_LOCAL_DEPENDENCIES_UP_TO_DATE_LABEL}",
+   "description": "${_LOCAL_DEPENDENCIES_UP_TO_DATE_DESC}",
+   "risk": "${_LOCAL_DEPENDENCIES_UP_TO_DATE_RISK}"
  },
  {
-   "id": "Dependencies_number_primary_other_OSS",
+   "id": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_ID}",
    "value": "Primary: $(_project_dep "${component}" "${__component_prjs}" | tr -d '\n\r')<br/>Secondary and tertiary: $(_project_dep --subs "${component}" "${__component_prjs}" | tr -d '\n\r')",
-   "label": "Number OSS Dependencies",
-   "risk": ""
+   "label": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_LABEL}",
+   "description": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_DESC}",
+   "risk": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_RISK}"
  },
  {
-   "id": "Dependencies_number_primary_other_Proprietary",
+   "id": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_PROPRIETARY_ID}",
    "value": "Primary: Manual<br/>Secondary and tertiary: Manual",
-   "label": "Number Proprietary Dependencies",
-   "risk": ""
+   "label": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_PROPRIETARY_LABEL}",
+   "description": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_PROPRIETARY_DESC}",
+   "risk": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_PROPRIETARY_RISK}"
  },
  {
-   "id": "Section___Malicious_Actors",
+   "id": "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}",
    "value": "${__SECTION__}",
-   "label": "Malicious Actors",
-   "risk": "Considers "
+   "label": "${_LOCAL_SECTION___MALICIOUS_ACTORS_LABEL}",
+   "description": "${_LOCAL_SECTION___MALICIOUS_ACTORS_DESC}",
+   "risk": "${_LOCAL_SECTION___MALICIOUS_ACTORS_RISK}"
  },
  {
-   "id": "Bad_Author_Vuls",
+   "id": "${_LOCAL_BAD_AUTHOR_VULS_ID}",
    "value": "Manual",
-   "label": "Author(s) Known to Commit Vulnerabilities",
-   "risk": ""
+   "label": "${_LOCAL_BAD_AUTHOR_VULS_LABEL}",
+   "description": "${_LOCAL_BAD_AUTHOR_VULS_DESC}",
+   "risk": "${_LOCAL_BAD_AUTHOR_VULS_RISK}"
  },
  {
-   "id": "Bad_Author_Malicious",
+   "id": "${_LOCAL_BAD_AUTHOR_MALICIOUS_ID}",
    "value": "$(_badactors "${__component_prds}" "${_HCcard}")",
-   "label": "Author(s) Known to Commit Malicious Code",
-   "risk": ""
+   "label": "${_LOCAL_BAD_AUTHOR_MALICIOUS_LABEL}",
+   "description": "${_LOCAL_BAD_AUTHOR_MALICIOUS_DESC}",
+   "risk": "${_LOCAL_BAD_AUTHOR_MALICIOUS_RISK}"
  },
  {
-   "id": "Section___Long_Term_Support",
+   "id": "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}",
    "value": "${__SECTION__}",
-   "label": "Long Term Support",
-   "risk": "Considers risk factors that indicate whether a software module will be adequately supported over the life of the program"
+   "label": "${_LOCAL_SECTION___LONG_TERM_SUPPORT_LABEL}",
+   "description": "${_LOCAL_SECTION___LONG_TERM_SUPPORT_DESC}",
+   "risk": "${_LOCAL_SECTION___LONG_TERM_SUPPORT_RISK}"
  },
  {
-   "id": "Project_Background_Reprise",
+   "id": "${_LOCAL_PROJECT_BACKGROUND_REPRISE_ID}",
    "value": "$(_background "${__ghrjson}")",
-   "label": "Project",
-   "risk": "project is stale with little to no changes in recent history"
+   "label": "${_LOCAL_PROJECT_BACKGROUND_REPRISE_LABEL}",
+   "description": "${_LOCAL_PROJECT_BACKGROUND_REPRISE_DESC}",
+   "risk": "${_LOCAL_PROJECT_BACKGROUND_REPRISE_RISK}"
  },
  {
-   "id": "User_Org",
+   "id": "${_LOCAL_USER_ORG_ID}",
    "value": "$(_user_org "${__ghrjson}")",
-   "label": "Individual or Organization",
-   "risk": ""
+   "label": "${_LOCAL_USER_ORG_LABEL}",
+   "description": "${_LOCAL_USER_ORG_DESC}",
+   "risk": "${_LOCAL_USER_ORG_RISK}"
  },
  {
-   "id": "${ORGLOOKUP_ID}",
+   "id": "${_LOCAL_ORG_TYPE_ID}",
    "value": "$(_org_type "${__ghrjson}")",
-   "label": "Organization Type",
-   "risk": "project is managed by an individual rather than a more formal organization for support"
+   "label": "${_LOCAL_ORG_TYPE_LABEL}",
+   "description": "${_LOCAL_ORG_TYPE_DESC}",
+   "risk": "${_LOCAL_ORG_TYPE_RISK}"
  },
  {
-   "id": "SLSA_Level",
+   "id": "${_LOCAL_SLSA_LEVEL_ID}",
    "value": "$(_slsa_level "${__ghhtml}")",
-   "label": "SLSA Level",
-   "risk": ""
+   "label": "${_LOCAL_SLSA_LEVEL_LABEL}",
+   "description": "${_LOCAL_SLSA_LEVEL_DESC}",
+   "risk": "${_LOCAL_SLSA_LEVEL_RISK}"
  },
  {
-   "id": "Best_Practices",
+   "id": "${_LOCAL_BEST_PRACTICES_ID}",
    "value": "$(_best_practices "${_SCcard}" "${_HCcard}")",
-   "label": "Best Practices",
-   "risk": "project is possibly not following security best practices"
+   "label": "${_LOCAL_BEST_PRACTICES_LABEL}",
+   "description": "${_LOCAL_BEST_PRACTICES_DESC}",
+   "risk": "${_LOCAL_BEST_PRACTICES_RISK}"
  },
  {
-   "id": "Abandoned_Projects",
+   "id": "${_LOCAL_ABANDONED_PROJECTS_ID}",
    "value": "$(_abandoned_prjs "${__ghrjson}")",
-   "label": "Number of Abandoned Project(s)",
-   "risk": "abandoned projects may have faults and vulnerabilities that may never by fixed"
+   "label": "${_LOCAL_ABANDONED_PROJECTS_LABEL}",
+   "description": "${_LOCAL_ABANDONED_PROJECTS_DESC}",
+   "risk": "${_LOCAL_ABANDONED_PROJECTS_RISK}"
  },
  {
-   "id": "OSSF_Crit_Score",
+   "id": "${_LOCAL_OSSF_CRIT_SCORE_ID}",
    "value": "$(_criticality_score "${_CScard}") (higher's better)",
-   "label": "OSSF's Activity (criticality) Score (work in progress)",
-   "risk": "https://openssf.org/blog/2023/07/28/understanding-and-applying-the-openssf-criticality-score-in-open-source-projects/"
+   "label": "${_LOCAL_OSSF_CRIT_SCORE_LABEL}",
+   "description": "${_LOCAL_OSSF_CRIT_SCORE_DESC}",
+   "risk": "${_LOCAL_OSSF_CRIT_SCORE_RISK}"
  },
  {
-   "id": "Days_Last_Commit",
+   "id": "${_LOCAL_DAYS_LAST_COMMIT_ID}",
    "value": "Days since last commit: $(_day_last "${__ghrjson}")<br/>Days since first commit: $(_day_first "${__ghrjson}")<br/>Activity: $(_maintained "${_SCcard}" "${_HCcard}")",
-   "label": "Commits",
-   "risk": "project is stale with little to no changes in recent history"
+   "label": "${_LOCAL_DAYS_LAST_COMMIT_LABEL}",
+   "description": "${_LOCAL_DAYS_LAST_COMMIT_DESC}",
+   "risk": "${_LOCAL_DAYS_LAST_COMMIT_RISK}"
  },
  {
-   "id": "Core_Contrib_Maintainer_Count",
+   "id": "${_LOCAL_CORE_CONTRIB_MAINTAINER_COUNT_ID}",
    "value": "Core: $(_maintainers "${_SCcard}" "${_HCcard}")<br/>Other: $(_contrib_count "${__ghrcontribjson}")<br/>Organizational diversity: $(_contrib_org "${_SCcard}" "${_HCcard}")",
-   "label": "Number of Contributors",
-   "risk": "a few trusted reviews for long term and the maintainers are active in managing the project"
+   "label": "${_LOCAL_CORE_CONTRIB_MAINTAINER_COUNT_LABEL}",
+   "description": "${_LOCAL_CORE_CONTRIB_MAINTAINER_COUNT_DESC}",
+   "risk": "${_LOCAL_CORE_CONTRIB_MAINTAINER_COUNT_RISK}"
  },
  {
-   "id": "Problem_Reporting_Process",
+   "id": "${_LOCAL_PROBLEM_REPORTING_PROCESS_ID}",
    "value": "$(_problem_reporting "${__ghrjson}")",
-   "label": "Problem Reporting Process",
-   "risk": ""
+   "label": "${_LOCAL_PROBLEM_REPORTING_PROCESS_LABEL}",
+   "description": "${_LOCAL_PROBLEM_REPORTING_PROCESS_DESC}",
+   "risk": "${_LOCAL_PROBLEM_REPORTING_PROCESS_RISK}"
  },
  {
-   "id": "Vul_Reporting_Process",
+   "id": "${_LOCAL_VUL_REPORTING_PROCESS_ID}",
    "value": "$(_vulsec_reporting "${_SCcard}")",
-   "label": "Vulnerability Reporting Process",
-   "risk": ""
+   "label": "${_LOCAL_VUL_REPORTING_PROCESS_LABEL}",
+   "description": "${_LOCAL_VUL_REPORTING_PROCESS_DESC}",
+   "risk": "${_LOCAL_VUL_REPORTING_PROCESS_RISK}"
  },
  {
-   "id": "Section___Suitability",
+   "id": "${_LOCAL_SECTION___SUITABILITY_ID}",
    "value": "${__SECTION__}",
-   "label": "Suitability",
-   "risk": "Considers "
+   "label": "${_LOCAL_SECTION___SUITABILITY_LABEL}",
+   "description": "${_LOCAL_SECTION___SUITABILITY_DESC}",
+   "risk": "${_LOCAL_SECTION___SUITABILITY_RISK}"
  },
  {
-   "id": "License_Name",
+   "id": "${_LOCAL_LICENSE_NAME_ID}",
    "value": "$(_license_name "${__ghrjson}" | sed 's^ SPDX_ID^<br/>SPDX_ID^g')",
-   "label": "License",
-   "risk": ""
+   "label": "${_LOCAL_LICENSE_NAME_LABEL}",
+   "description": "${_LOCAL_LICENSE_NAME_DESC}",
+   "risk": "${_LOCAL_LICENSE_NAME_RISK}"
  },
  {
-   "id": "License_Risk",
+   "id": "${_LOCAL_LICENSE_RISK_ID}",
    "value": "$(_license_risk "${component}_allIssues.json")",
-   "label": "License Risk",
-   "risk": ""
+   "label": "${_LOCAL_LICENSE_RISK_LABEL}",
+   "description": "${_LOCAL_LICENSE_RISK_DESC}",
+   "risk": "${_LOCAL_LICENSE_RISK_RISK}"
  },
  {
-   "id": "Section___Report_Metadata",
+   "id": "${_LOCAL_SECTION___REPORT_METADATA_ID}",
    "value": "${__SECTION__}",
-   "label": "OSS-P4/R Information",
-   "risk": ""
+   "label": "${_LOCAL_SECTION___REPORT_METADATA_LABEL}",
+   "description": "${_LOCAL_SECTION___REPORT_METADATA_DESC}",
+   "risk": "${_LOCAL_SECTION___REPORT_METADATA_RISK}"
  },
  {
-   "id": "Metadata_create",
+   "id": "${_LOCAL_METADATA_CREATE_ID}",
    "value": "$(date)",
-   "label": "Created",
-   "risk": ""
+   "label": "${_LOCAL_METADATA_CREATE_LABEL}",
+   "description": "${_LOCAL_METADATA_CREATE_DESC}",
+   "risk": "${_LOCAL_METADATA_CREATE_RISK}"
  },
  {
-   "id": "Metadata_version",
+   "id": "${_LOCAL_METADATA_VERSION_ID}",
    "value": "${_version}",
-   "label": "Version",
-   "risk": ""
+   "label": "${_LOCAL_METADATA_VERSION_LABEL}",
+   "description": "${_LOCAL_METADATA_VERSION_DESC}",
+   "risk": "${_LOCAL_METADATA_VERSION_RISK}"
  },
  {
-   "id": "Metadata_phyprjid",
+   "id": "${_LOCAL_METADATA_PHYPRJID_ID}",
    "value": "$(_phylum_prjId "${phylum_project}" "${__phy_prjs}")",
-   "label": "$(if [ "${puri}" != "${__NULLPURI__}" ]; then echo -n "Package URI"; else echo -n "Phylum Project ID"; fi)",
-   "risk": ""
+   "label": "${_LOCAL_METADATA_PHYPRJID_LABEL}",
+   "description": "${_LOCAL_METADATA_PHYPRJID_DESC}",
+   "risk": "${_LOCAL_METADATA_PHYPRJID_RISK}"
  },
  {
-   "id": "Metadata_phyjobid",
+   "id": "${_LOCAL_METADATA_PHYJOBID_ID}",
    "value": "$(_phylum_jobReport --readOnly "${phylum_project}" "${__component_prds}")",
-   "label": "Phylum Analysis ID",
-   "risk": ""
+   "label": "${_LOCAL_METADATA_PHYJOBID_LABEL}",
+   "description": "${_LOCAL_METADATA_PHYJOBID_DESC}",
+   "risk": "${_LOCAL_METADATA_PHYJOBID_RISK}"
  },
  {
-   "id": "Metadata_runtime",
+   "id": "${_LOCAL_METADATA_RUNTIME_ID}",
    "value": "Approximately $(_thisRuntime "${__logfil}") minute(s) (this run), for a total of $(_totalRuntime 'run-*log')",
-   "label": "Runtime",
-   "risk": ""
+   "label": "${_LOCAL_METADATA_RUNTIME_LABEL}",
+   "description": "${_LOCAL_METADATA_RUNTIME_DESC}",
+   "risk": "${_LOCAL_METADATA_RUNTIME_RISK}"
  },
  {
-   "id": "Metadata_cmdline",
+   "id": "${_LOCAL_METADATA_CMDLINE_ID}",
    "value": "${_cmdline}",
-   "label": "Command line",
-   "risk": ""
+   "label": "${_LOCAL_METADATA_CMDLINE_LABEL}",
+   "description": "${_LOCAL_METADATA_CMDLINE_DESC}",
+   "risk": "${_LOCAL_METADATA_CMDLINE_RISK}"
  },
  {
-   "id": "Metadata_depths",
+   "id": "${_LOCAL_METADATA_DEPTHS_ID}",
    "value": "${dependencyDepth}, ${scoreDepth}",
-   "label": "Dependency and Score depth",
-   "risk": ""
+   "label": "${_LOCAL_METADATA_DEPTHS_LABEL}",
+   "description": "${_LOCAL_METADATA_DEPTHS_DESC}",
+   "risk": "${_LOCAL_METADATA_DEPTHS_RISK}"
  },
  {
-   "id": "Metadata_comment",
+   "id": "${_LOCAL_METADATA_COMMENT_ID}",
    "value": "${_HTMLcaveats[@]}",
-   "label": "Comment/Caveats",
-   "risk": ""
+   "label": "${_LOCAL_METADATA_COMMENT_LABEL}",
+   "description": "${_LOCAL_METADATA_COMMENT_DESC}",
+   "risk": "${_LOCAL_METADATA_COMMENT_RISK}"
  },
  {
-   "id": "Metadata_credits",
+   "id": "${_LOCAL_METADATA_CREDITS_ID}",
    "value": "<a href='https://github.com/ossf/scorecard'>OSSF/Scorecard ${_ossf_scorecard_ver}</a>, <a href='https://github.com/ossf/criticality_score'>OSSF/Critical Score ${_ossf_critscorecard_ver}</a>, <a href='https://github.com/mitre/hipcheck'>MITRE Hipcheck ${_mitre_hipcheck_ver}</a>, <a href='https://phylum.io'>Phylum.io ${_phylum_ver}</a>",
-   "label": "Powered by",
-   "risk": ""
+   "label": "${_LOCAL_METADATA_CREDITS_LABEL}",
+   "description": "${_LOCAL_METADATA_CREDITS_DESC}",
+   "risk": "${_LOCAL_METADATA_CREDITS_RISK}"
  },
  {
-   "id": "Metadata_footnotes",
+   "id": "${_LOCAL_METADATA_FOOTNOTES_ID}",
    "value": "${_HTMLfootnotes[@]}",
-   "label": "footnotes",
-   "risk": ""
+   "label": "${_LOCAL_METADATA_FOOTNOTES_LABEL}",
+   "description": "${_LOCAL_METADATA_FOOTNOTES_DESC}",
+   "risk": "${_LOCAL_METADATA_FOOTNOTES_RISK}"
  }
  ],
  "rawScores": [
@@ -5385,7 +5469,7 @@ ${protectNoUpdate} && { ${force_rebuild} || ${BFLAGS[job]}; } &&
 #
 # check runtime requirements
 #
-if ! check_runtime; then _fatal "exiting due to missing runtime requirement(s)"; fi
+if ! check_runtime; then _fatal "exiting due to missing or errored runtime requirement(s)"; fi
 
 _say "establishing componment working folder ${component}"
 mkdir -p "${component}"
