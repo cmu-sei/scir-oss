@@ -4745,7 +4745,7 @@ _compile_json_p4report()
    "id": "${_LOCAL_SECTION___DEPENDENCIES_ID}",
    "value": "${__SECTION__}",
    "label": "${_LOCAL_SECTION___DEPENDENCIES_LABEL}",
-   "description": "${_LOCAL_SECTION_DEPENDENCIES___DESC}",
+   "description": "${_LOCAL_SECTION___DEPENDENCIES_DESC}",
    "risk": "${_LOCAL_SECTION___DEPENDENCIES_RISK}"
  },
  {
@@ -5206,7 +5206,7 @@ __main__()
     _say -n "Generating ${component}_scir.html...";
     _rc="Failed"
     jq -r '.reportWriter |
-      map("<tr><td>" + .label + "</td><td>" + (.value | tostring) + "</td></tr>") | 
+      map("<tr><td><div title=\\\"" + .description + "\\\"><u>" + .label + "</u></div></td><td>" + (.value | tostring) + "</td></tr>") |
       ["<table><tr><th>OSS Project Report</th><th>Response</th></tr>"] + . + ["</table>"] |
       .[]
       ' "${component}_scir.json" > "${component}_scir.html" && _rc="OK"
