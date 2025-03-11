@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
 #
 
-readonly _version="pubRel 250310a (branch: publicRelease)"
+readonly _version="pubRel 250311a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -126,6 +126,13 @@ mkdepdir()
   return 0
 }
 
+# https://stackoverflow.com/questions/6250698/how-to-decode-url-encoded-string-in-shell
+# TODO: there may be better answers in the post, explore better
+#
+#function urldecode() { :       "${*//+/ }"; echo -e  "${_//%/\\x}"; }
+#function urldecode() { local i="${*//+/ }"; echo -e  "${i//%/\\x}"; }
+function urldecode() { local i="${*//+/ }"; echo -ne "${i//%/\\x}"; }
+
 #
 # OSS-P4/R report writer helpers
 #
@@ -142,6 +149,8 @@ readonly __NULLPURI__=":eco:name:ver"
 __NULLLOG__="$(mktemp -u -p .)"
 readonly __NULLLOG__
 readonly __TIMEOUT__="300"
+readonly __SBOM__="SBOM"
+readonly __PHYLUM__="PHYLUM"
 
 #readonly _fpdigitsRE='^[+-]?[0-9]+([.][0-9]+)?$'
 readonly _fpdigitsRE='^[+-]?[0-9]*([.][0-9]+)?$'
@@ -648,7 +657,6 @@ _fotp()
     [[ ${1} == --warnFlag ]] && _flag="${__WARNING__}"
     shift 1
   done
-
 
   [[ "${1}" == "${__CHECKNOTIMPL__}" ]] && echo "${__WARNING__}" && return 1
   [[ "${1}" == "-1" ]] && echo "${__WARNING__}" && return 1
@@ -2420,6 +2428,22 @@ _totalRuntime()
 }
 
 #
+# sanitize all github urls to only have :owner:/:repo:
+# pattern, no extra paths, no .git at the end
+# as such fail with GH API and tools that use it
+#
+_gh_sanitize_url()
+{
+  local _uriS="${1}"
+
+  { [[ ${_uriS,,} =~ ^https://github.com/ ]] && _uriS="$(cut -d/ -f1-5 <<<"${_uriS}")"; } ||
+  { [[ ${_uriS,,} =~ ^github.com/ ]]         && _uriS="$(cut -d/ -f1-3 <<<"${_uriS}")"; }
+
+  echo "${_uriS/%\.git/}"
+  return
+}
+
+#
 # customized digger to scrape a site looking for
 # and URL/URI pointing to GitHub
 # (handcrafted--needs care and feeding-sorry)
@@ -2428,21 +2452,12 @@ _dig4repo()
 {
   _ret="unknown"
 
-  #
-  # if github, return early
-  # TODO: check code of all instances of HTTPS: in this code (3 places)
-  #       discovered on instance where phylum
-  #       set a github repoUrl to :owner:/:repo:.git
-  #       that .git at the end makes GH API, Scorecard
-  #       and maybe hipcheck sick - here is where to
-  #       strip it.
-  #
-  [[ "${1}" =~ ^github ]] && echo "${1}" && return 0
+  [[ "${1}" =~ ^github ]] && _gh_sanitize_url "${1}" && return 0
 
   case "${1}" in
     google.golang.org/*)
       _say "a scrapping repo" "${1}"
-      _r=$(curl -L --silent --request GET --url "${1}" -o - | grep -E -i -A 10 "(repository)" | grep -E -i  "([[:space:]]github)")
+      _r=$(curl -L --silent --request GET --url "${1}" -o - | grep -E -i -A 10 "(repository)" | grep -E -i  "([[:space:]]github)" | sed 's/^[[:space:]]*//g')
       ;;
     golang.org/*|go.opentelemetry.io/*|go.elastic.co/*|cloud.google.com/go/*|go.uber.org/*|gotest.tools/*|go.opencensus.io)
       _say "b scrapping repo" "${1}"
@@ -2468,8 +2483,72 @@ _dig4repo()
 
   [ -n "${_r}" ] && _ret="${_r}"
 
-  echo "${_ret}"
+  _gh_sanitize_url "${_ret}"
   return
+}
+
+#
+# runs ghapi to get project meta data
+# "${_pullFN}" "${_pkg}" "${_depout}_deps.json" "${_sbomsrc}"; then
+#
+pull_ghSBOM()
+{
+  local _outfile=${2}
+  local _sbom_from=${3}
+  local _rc=1
+  readonly _outfile
+  readonly _sbom_from
+  local _retry=${_phy_pkg_api_retry_count}
+
+  [[ ! "${_sbom_from}" =~ github.com  ]] &&
+    __xform_sbom_unsupported "${1}" "${_sbom_from}" "sbom API not supported" >"${_depout}_deps.json" && return 0
+
+  _say "running gh api for SBOM from ${_sbom_from} on ${1} to ${_outfile}"
+  #
+  # do until a success or break after retries
+  #
+  while [[ ${_retry} -gt 0 ]] #{
+  do
+    waitRateLimit "${_lowerLimit}"
+    #
+    # follow redirects
+    # TODO: determine if there are other
+    #       places where this needs to be
+    #
+    curl --location --silent --write-out "%{http_code}" \
+      -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "${_sbom_from}/dependency-graph/sbom" \
+      -o "${_outfile}" >/tmp/http_code.out
+
+    _rc="${?}"
+    read -r _code </tmp/http_code.out
+
+    { [[ ${_rc} -gt 0 ]] || [[ ! -s "${_outfile}" ]]; } &&
+      _warn "${_outfile}: sbom is zero bytes" &&
+      _retry=$((_retry-1)) && _say "sleep penalty" && sleep 3
+
+    case "${_code}" in
+      "406")
+        __xform_sbom_unsupported "${1}" "${_sbom_from}" "sbom not pulled - curl 406 code unrecoverable" > "${_outfile}"
+        continue ;;
+      "404")
+        __xform_sbom_unsupported "${1}" "${_sbom_from}" "sbom not found - likely not enabled on github" > "${_outfile}" ;;
+      *)
+        ;;
+    esac
+
+    [[ ${_rc} -eq 0 ]] && _retry=0
+  done #}
+
+  #
+  # transform sbom to support phylum dependency format (for now)
+  #
+  grep -q packages "${_outfile}" && mv "${_outfile}" "${_outfile/_deps.json/_ghapi_sbom.json}" &&
+     __xform_sbom_prds_dep "${_outfile/_deps.json/_ghapi_sbom.json}" "${_outfile}"
+
+  return ${_rc}
 }
 
 readonly _phy_pkg_api_retry_count=3
@@ -2566,6 +2645,7 @@ _dig4subdep()
   local _l
   local _rc
   local _d
+  local _sbomsrc
 
   _lev="${1}"
   _c="${2}"
@@ -2628,9 +2708,21 @@ _dig4subdep()
   #       and wack the _deps.json as it will contain the
   #       error message from phylum and not the results
   #
+  # if ! pull_phyPackage "${_pkg}" "${_depout}_deps.json"; then
+  #
+  _pullFN=pull_ghSBOM && [[ "${dependency_type}" == "${__PHYLUM__}" ]] && _pullFN=pull_phyPackage
+  #
+  # here for SBOM's shortcut the lookup which for non-github srcs will fail
+  #
+  _sbomsrc=$(grep --fixed-strings ",${_c}," "${_ftoupdate}" |cut -d, -f4)
+  [[ ! "${_sbomsrc}" =~ github.com  ]] &&
+    __xform_sbom_unsupported "${_c}" "${_sbomsrc}" "sbom API not supported" >"${_depout}_deps.json"
+
+#  && touch "${_depout}_deps.json.visited" && _say "-n" "x" && return
+
   [ ! -s "${_depout}_deps.json" ] &&
     _say -n "pulling ${_c} dependencies..." &&
-    if ! pull_phyPackage "${_pkg}" "${_depout}_deps.json"; then
+    if ! "${_pullFN}" "${_pkg}" "${_depout}_deps.json" "${_sbomsrc}"; then
       [ ! -s "${_depout}_deps.json" ] &&
         _warn "curl failed for ${_c}"
       [ -s "${_depout}_deps.json" ] &&
@@ -2653,7 +2745,7 @@ _dig4subdep()
   # TODO: recording here is really knowing if the component
   #       exists as it is after the dependency pull
   #
-  _r="$(jq -r '.repoUrl' "${_depout}_deps.json")"
+  _r="$(jq -r '.repoUrl|select(.!=null)' "${_depout}_deps.json")"
   [[ -z "${_r}" ]] && _r="unknown"
   # if (! grep -q ${id} /etc/passwd) && (! grep ${id} /etc/group); then echo not there; fi
   if ! grep -q --fixed-strings ",${_c}," "${_ftoupdate}"; then echo "${_lev},${_c},${_r},${_r},200" >> "${_ftoupdate}"; fi
@@ -2672,6 +2764,7 @@ _dig4subdep()
       #
       # record dependency (parent/child) relationship
       #
+      [[ ${_d} =~ % ]] && _d=$( urldecode "${_d}" )
       echo "#s ${_dep}" >> "${__tmp_dep_graph}" && echo "\"${_c}\" -> \"${_d}\";" >> "${__tmp_dep_graph}";
       _dig4subdep "${_l}" "${_d}" "${_ftoupdate}"
     done #}
@@ -2685,12 +2778,25 @@ _dig4subdep()
 
 _phylum_prjId()
 {
+  local _dolabel="true"
+  local _label=""
+
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --terse ]] && _dolabel="false"
+    shift 1
+  done
+
   local _prj="${1}";
   export _prj;
 
-  [[ "${puri}" != "${__NULLPURI__}" ]] && echo "Package URI: ${puri}" && return
+  "${_dolabel}" && _label="Package URI: "
 
-  echo "Phylum Project ID: $(jq -r '                
+  [[ "${puri}" != "${__NULLPURI__}" ]] && echo "${_label}${puri}" && return
+
+  "${_dolabel}" && _label="Phylum Project ID: "
+
+  echo "${_label}$(jq -r '                
     .values[] | select(.name==env._prj) | 
       [ .name,.id ] | @csv' "${2}" | \
     cut -d, -f2 | sed 's/"//g')"
@@ -2840,6 +2946,106 @@ _patchIfNeeded()
   return 0
 }
 
+#    __phylum_deps "${_apiMethod}" "${_prjid}" "${1}" "${3}"
+__phylum_deps()
+{
+  local _apiMethod="${1}"
+  local _prjid="${2}"
+  local _cmp="${3}"
+  local _file="${4}"
+
+  #
+  # TODO: test and warn / error if _prjid cannot be
+  #       found - this could be related to a bad
+  #       name for the phylum project or a pagination
+  #       limit
+  _say "getting dependencies of ${_cmp} and _prjid=${_prjid}"
+
+  [ ! -f "${_file}" ] &&
+    _say -n "building Phylum project product dependencies caches..." &&
+    (
+      (
+        curl --silent --request GET \
+          --url "https://api.phylum.io/api/v0/data/${_apiMethod}/${_prjid}" \
+          --header 'accept: application/json' \
+          --header "authorization: Bearer $(phylum auth token --bearer)" \
+          -o "${_file}"
+      ) ||
+      (
+        _fatal "phylum-api project product dependency pre-cache failed."
+      )
+    )
+
+  [ ! -f "${_file}" ] || [ ! -s "${_file}" ] &&
+    _fatal "${_file} is missing or empty"
+
+  _say "OK"
+
+  [ "$(find "${_file}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
+    _warn "${_file} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+
+  _patchIfNeeded "${_file}"
+
+  return
+}
+
+#  __xform_sbom_unsupported "${_c}" "${_sbomsrc}" "${_msg}"
+__xform_sbom_unsupported()
+{
+  echo "{ \"dependencies\": [], \"_c\": \"${1}\", \"_sbomsrc\": \"${2}\" , \"_msg\": \"${3}\" }";
+  return
+}
+
+#  __xform_sbom_prds_dep "${_sbomsrc}" "${_file}"
+__xform_sbom_prds_dep()
+{
+  local _sbomsrc="${1}"
+  local _ofile="${2}"
+
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    :
+    shift 1
+  done
+
+  [ ! -f "${_ofile}" ] &&
+    jq -r \
+    '
+     if (.sbom) then .sbom else . end
+     | del ( .packages[].externalRefs[]? | select (.referenceCategory!="PACKAGE-MANAGER" ))
+     | .packages|=map(.id=.externalRefs[0].referenceLocator)
+     | .packages|=map(.repoUrl=null)
+     | with_entries(if .key == "packages" then .key = "dependencies" else . end)
+    ' "${_sbomsrc}" > "${_ofile}"
+
+  return
+}
+
+#    __sbom_deps "${dependency_src}" "${_prjid}" "${1}" "${3}"
+__sbom_deps()
+{
+  local _sbomsrc="${1}"
+  local _prjid="${2}"
+  local _cmp="${3}"
+  local _file="${4}"
+
+  _say "getting dependencies of ${_cmp} and _prjid=${_prjid}"
+
+  jq -r '.' "${_sbomsrc}" > /dev/null || _fatal "${_sbomsrc}: JSON validation Failed:";
+
+  __xform_sbom_prds_dep "${_sbomsrc}" "${_file}"
+
+  [ ! -f "${_file}" ] || [ ! -s "${_file}" ] &&
+    _fatal "${_file} is missing or empty"
+
+  _say "OK"
+
+  [ "$(find "${_file}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
+    _warn "${_file} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+
+  return
+}
+
 #
 # builds a CSV file with the pattern
 # <level>,<component name>,<URL>
@@ -2857,53 +3063,30 @@ _phylum_dep_components()
   # get the phylum project id from list of projects
   #
   local _apiMethod
+  local _c
+  local _r
+  local _cmp
 
   ${blockNetwork} && _warn "Offline mode, traversing component dependencies, skipped" && return 0
-
-  _apiMethod="projects"
-  _prjid=$(_phylum_prjId "${1}" "${2}")
-  [[ "${puri}" == "${_prjid}" ]] && _apiMethod="packages" && _prjid="$(makePuri "${puri}")"
-
-  [[ -z "${_prjid}" ]] && _fatal "phylum-api project ${1} not found."
-
-  #
-  # TODO: test and warn / error if _prjid cannot be
-  #       found - this could be related to a bad
-  #       name for the phylum project or a pagination
-  #       limit
-  _say "getting dependencies of ${1} and _prjid=${_prjid}"
 
   #########
   # pre-cache phylum project product dependencies
   _say -n "checking ${1} project product dependency caches..."
 
   ${component_dep_rebuild} || ${force_rebuild} &&
-    _say -n "forced clearing PH project product dependency caches..." && rm -f "${3}"
+    _say -n "forced clearing of product dependency caches..." && rm -f "${3}"
 
-  [ ! -f "${3}" ] &&
-    _say -n "building Phylum project product dependencies caches..." &&
-    (
-      (
-        curl --silent --request GET \
-          --url "https://api.phylum.io/api/v0/data/${_apiMethod}/${_prjid}" \
-          --header 'accept: application/json' \
-          --header "authorization: Bearer $(phylum auth token --bearer)" \
-          -o "${3}"
-      ) ||
-      (
-        _fatal "phylum-api project product dependency pre-cache failed."
-      )
-    )
+  if [[ "${dependency_type}" == "${__SBOM__}" ]]; then
+    _prjid=sbom
+    __sbom_deps "${dependency_src}" "${_prjid}" "${1}" "${3}"
+  else
+    _apiMethod="projects"
+    _prjid=$(_phylum_prjId --terse "${1}" "${2}")
+    [[ "${puri}" == "${_prjid}" ]] && _apiMethod="packages" && _prjid="$(makePuri "${puri}")"
 
-  [ ! -f "${3}" ] || [ ! -s "${3}" ] &&
-    _fatal "${3} is missing or empty"
-
-  _say "OK"
-
-  [ "$(find "${3}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${3} over ${_cache_days}(s) days old, consider rebuilding (-f)"
-
-  _patchIfNeeded "${3}"
+    [[ -z "${_prjid}" ]] && _fatal "phylum-api project ${1} not found."
+    __phylum_deps "${_apiMethod}" "${_prjid}" "${1}" "${3}"
+  fi
 
   _say "resetting ${4}" && cp /dev/null "${4}" && cp /dev/null "${__tmp_dep_graph}" && component_subdep_rebuild="true";
 
@@ -2918,27 +3101,47 @@ _phylum_dep_components()
         break;
       fi
 
-      _dep=$(echo "${_c}" | cut -d: -f2)
+      # detect SBOM externalRefs referenceLocator (PACKAGE-MANAGER purl)
+      # form is pkg:<eco>/<place>@<ver>
+      if [[ ${_c} =~ ^pkg: ]]; then
+        # this order permits npm:@types... example pattern
+        _dep="$(cut -d@ -f1 <<< "${_c/pkg:}" | cut -d/ -f2-)"
+        [[ ${_dep} =~ % ]] && _dep=$( urldecode "${_dep}" )
+        [[ ${_c} =~ % ]] && _c=$( urldecode "${_c}" )
+        # for the project csv, make _c look the same as legacy phylum (for now)
+        #   form is <eco>:<place>:<ver>
+        # shellcheck disable=2001
+        _cmp="$(sed 's^/^:^;s/@\([[:digit:]]\)/:v\1/' <<< "${_c/pkg:}" )"
+      else
+        _dep=$(echo "${_c}" | cut -d: -f2)
+        _cmp="${_c}"
+      fi
+
       _repo=$(_dig4repo "${_dep}")
-      if [ "${_repo}" == "unknown" ]; then
+      if [ "${_repo}" == "unknown" ] && [ -n "${_r/null/}" ]; then
         _r=${_r//https:\/\//}
         _r=${_r//http:\/\//}
         _repo=$(_dig4repo "${_r}")
       fi
 
-      echo "${5},${_c},${_dep},${_repo},100" >> "${4}"
+      #
+      # make list of projects
       # 5   : 1,
-      # _c  : rubygems:parallel:1.22.1,
+      # _cmp: rubygems:parallel:1.22.1,
       # _dep: parallel,
       # repo: github.com/grosser/parallel/tree/v1.22.1,
       # code: 100
       #
       # 5   : 1,
-      # _c  : rubygems:json:2.6.1,
+      # _cmp: rubygems:json:2.6.1,
       # _dep: json,
       # repo: github.com/flori/json,
       # code: 100
-      echo "# ${_dep}" >> "${__tmp_dep_graph}" && echo "\"${1}\" -> \"${_c}\";" >> "${__tmp_dep_graph}";
+      #
+      ! grep --fixed-strings -s -q "${5},${_cmp},${_dep},${_repo},100" "${4}" && {
+        echo "${5},${_cmp},${_dep},${_repo},100" >> "${4}";
+        echo "# ${_dep}" >> "${__tmp_dep_graph}" && echo "\"${1}\" -> \"${_cmp}\";" >> "${__tmp_dep_graph}";
+      }
 
     done #}
 
@@ -2947,13 +3150,11 @@ _phylum_dep_components()
 
 _phylum_subdep_components()
 {
-  _prds=${1}
-  _prjs=${2}
-
-  readonly _prds
+  local _prds=${1}
+  local _prjs=${2}
 
   (${force_rebuild} || ${component_subdep_rebuild} ) &&
-    _say -n "clearing subdep project dependency caches..." && find . \( -name \*visited -o -name \*visited.err \) -delete
+    _say -n "clearing subdep project dependency caches..." && find . \( -name \*visiting -o -name \*visited -o -name \*visited.err \) -delete
 
   #
   # TODO: this is not done yet, this output file
@@ -2975,6 +3176,18 @@ _phylum_subdep_components()
       if [ -z "${_c}" ]; then
         break;
       fi
+
+      # detect SBOM externalRefs referenceLocator (PACKAGE-MANAGER purl)
+      # form is pkg:<eco>/<place>@<ver>
+      if [[ ${_c} =~ ^pkg: ]]; then
+        # this order permits npm:@types... example pattern
+        [[ ${_c} =~ % ]] && _c=$( urldecode "${_c}" )
+        # for the project csv, make _c look the same as legacy phylum (for now)
+        #   form is <eco>:<place>:<ver>
+        # shellcheck disable=2001
+        _c="$(sed 's^/^:^;s/@\([[:digit:]]\)/:v\1/' <<< "${_c/pkg:}" )"
+      fi
+
       #_dig4subdep "${_level}" "${_c}" "${_prjs}".subs
       _dig4subdep "${_level}" "${_c}" "${_prjs}"
     done #}
@@ -3985,7 +4198,7 @@ build_caches()
   [ ! -f "${__ghrsbomjson}" ] && _say -n "building GH SBOM caches..." &&
   (
     (
-      curl --silent \
+      curl --location --silent --write-out "%{http_code}" \
         -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
         -H "Accept: application/vnd.github+json" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -3993,12 +4206,12 @@ build_caches()
         -o "${__ghrsbomjson}"
     ) ||
     (
-      _fatal "gh-api SBOM pre-cache failed."
+      _fatal "gh-api SBOM pre-cache failed ${?}."
     )
   )
 
-  [ ! -f "${__ghrsbomjson}" ] || [ ! -s "${__ghrsbomjson}" ] &&
-    _fatal "${__ghrsbomjson} is missing or empty"
+  (! jq -r '.' "${__ghrsbomjson}" > /dev/null) || [ ! -f "${__ghrsbomjson}" ] || [ ! -s "${__ghrsbomjson}" ] &&
+    _fatal "${__ghrsbomjson} is corrupt, missing or empty"
 
   if grep -q Bad\ credentials "${__ghrsbomjson}"; then _fatal "${__ghrsbomjson} bad GITHUB_AUTH_TOKEN credentials"; fi
 
@@ -4006,6 +4219,13 @@ build_caches()
 
   [ "$(find "${__ghrsbomjson}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
     _warn "${__ghrsbomjson} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+
+  #########
+  # 
+  [[ "${dependency_type}" == "${__SBOM__}" ]] && {
+    [ ! -f "${__phy_prjs}" ] && touch "${__phy_prjs}"
+    return
+  }
 
   #########
   # pre-cache phylum projects
@@ -4072,18 +4292,18 @@ consolidate_issues()
       while read -r __grepo; read -r __lic
       do
         ((_liseq++));
-	#
-	# this RE for the grep is based on results from the licenseDB.json file
-	# if it changes, this RE need to change. This RE will only match those
-	# licenses from the DB file which have the properties in the query:
-	# jq -r '.licenses[]|\
-	#  select (.properties.discloseSource == "true" or .properties.networkUseIsDistribution == "true")|\
-	#  .spdxId' ../settings/mychecks/licenseDB.json
-	# TODO: figure a way to auto-gen this RE
-	#
-	! grep -s -q -E '(MPL|GPL|OSL|MS-RL|EUPL|LPPL|EPL)' <<<"${__lic}" && continue
+        #
+        # this RE for the grep is based on results from the licenseDB.json file
+        # if it changes, this RE need to change. This RE will only match those
+        # licenses from the DB file which have the properties in the query:
+        # jq -r '.licenses[]|\
+        #  select (.properties.discloseSource == "true" or .properties.networkUseIsDistribution == "true")|\
+        #  .spdxId' ../settings/mychecks/licenseDB.json
+        # TODO: figure a way to auto-gen this RE
+        #
+        ! grep -s -q -E '(MPL|GPL|OSL|MS-RL|EUPL|LPPL|EPL)' <<<"${__lic}" && continue
         _site=$(sed 's^git://^^g;s^.git$^^g' <<<"${__grepo}")
-	_id=$(grep -i --fixed-string "${_site}" ./*_dep_prjs.csv | cut -d, -f2 | tr  '\n' ';' | sed 's/;$//g')
+        _id=$(grep -i --fixed-string "${_site}" ./*_dep_prjs.csv | cut -d, -f2 | tr  '\n' ';' | sed 's/;$//g')
         cat <<-_MYLICEOF
   {
     "tag": "HL$(printf %.4d "${_liseq}")",
@@ -4101,6 +4321,7 @@ _MYLICEOF
         jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
     # jq's arg _risk in quotes is NOT to be a shell expansion
     # false positive https://github.com/koalaman/shellcheck/issues/1160
+    #
     # shellcheck disable=2016
     find . \( -name \*_dep_prds.json -o -name \*deps.json \) -print0 | \
       xargs -0 \
@@ -4108,7 +4329,7 @@ _MYLICEOF
         .
         | if (.issues) then . else . + {"issues": []} end
         | if (.dependencies) then . else . + {"dependencies": [ { "issues":[] } ]} end
-        | .issues[],.dependencies[].issues[]
+        | .issues[]?,.dependencies[].issues[]?
         | select(.riskType==$_risk)
       ' | \
           jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
@@ -4461,11 +4682,13 @@ check_runtime()
     fi
   done
 
-  local _bearer
-  if ! _bearer=$(phylum auth token --bearer); then _say "got token? ${?}"; fi
-  [ -z "${_bearer}" ] &&
+  [[ "${dependency_type}" == "${__PHYLUM__}" ]] && {
+    local _bearer;
+    if ! _bearer=$(phylum auth token --bearer); then _err "got phylum token? ${?}" && _rc=1; fi
+    [ -z "${_bearer}" ] &&
       _err "required phylum bearer token not available, see 'phylum auth status' for details" &&
-      _rc=1
+      _rc=1;
+  }
 
   #
   # the command line
@@ -4474,16 +4697,18 @@ check_runtime()
     _err "required local project name not specified (e.g., -C fleetth)" &&
     _rc=1
 
-  [ -z "${phylum_project}" ] &&
-    _err "required phylum project name not specified (e.g., -P fleetth)" &&
+  [ -z "${dependency_src}" ] &&
+    _err "required dependency specification not specified (e.g., -P <phylum project> or -P <[syft|GitHub] sbom file>)" &&
     _rc=1
 
   #
   # TODO: fix - this is an unnecessary restriction
   #
-  [ ! "${component}" = "${phylum_project}" ] &&
-    _err "required phylum and local project must be the same TODO: fix (e.g., -P fleetth -C fleetth)" &&
-    _rc=1
+  [[ "${dependency_type}" == "${__PHYLUM__}" ]] && {
+    [ ! "${component}" = "${dependency_src}" ] &&
+      _err "required phylum and local project must be the same TODO: fix (e.g., -P fleetth -C fleetth)" &&
+      _rc=1;
+  }
 
   [ "${gh_site}" = "${__NULLGH__}" ] &&
     _warn "Github project site not specified for ${component} (e.g., -G ossf/scorecard)"
@@ -4932,14 +5157,14 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_METADATA_PHYPRJID_ID}",
-   "value": "$(_phylum_prjId "${phylum_project}" "${__phy_prjs}")",
+   "value": "$(_phylum_prjId "${dependency_src}" "${__phy_prjs}")",
    "label": "${_LOCAL_METADATA_PHYPRJID_LABEL}",
    "description": "${_LOCAL_METADATA_PHYPRJID_DESC}",
    "risk": "${_LOCAL_METADATA_PHYPRJID_RISK}"
  },
  {
    "id": "${_LOCAL_METADATA_PHYJOBID_ID}",
-   "value": "$(_phylum_jobReport --readOnly "${phylum_project}" "${__component_prds}")",
+   "value": "$(_phylum_jobReport --readOnly "${dependency_src}" "${__component_prds}")",
    "label": "${_LOCAL_METADATA_PHYJOBID_LABEL}",
    "description": "${_LOCAL_METADATA_PHYJOBID_DESC}",
    "risk": "${_LOCAL_METADATA_PHYJOBID_RISK}"
@@ -5030,15 +5255,15 @@ __main__()
   build_caches
 
   ! ${protectNoUpdate} && [ -s "${__component_prds}" ] && {
-    __jobStatus="$(_phylum_jobStatus "${phylum_project}" "${__component_prds}")";
+    __jobStatus="$(_phylum_jobStatus "${dependency_src}" "${__component_prds}")";
     _phylum_jobId_BHDT="true"
     [[ "${__jobStatus}" == "incomplete" ]] && { \
       _say "Existing phylum analysis job was ${__jobStatus}, rebuilding ${__component_prds}";
       component_dep_rebuild="true";
     }
-    _job="$(_phylum_jobId "${phylum_project}" "${__component_prds}")"
+    _job="$(_phylum_jobId "${dependency_src}" "${__component_prds}")"
     [[ -n "${_job}" ]] && [[ "${__jobStatus}" == "complete" ]] && \
-      [[ "${phylum_project}_job_${_job/,*/}.json" -nt "${__component_prds}" ]] && { 
+      [[ "${dependency_src}_job_${_job/,*/}.json" -nt "${__component_prds}" ]] && { 
         _say "Existing phylum analysis job is ${__jobStatus} but newer, rebuilding ${__component_prds}";
         component_dep_rebuild="true";
     }
@@ -5065,6 +5290,8 @@ __main__()
     [ ! -s "${__component_prjs}" ]; } &&
       _say "rebuilding links to ${component} sub-dependencies..." &&
       _phylum_subdep_components "${__component_prds}" "${__component_prjs}"
+# testing since new dep depth doesn't quite work they way i'd like
+component_subdep_rebuild="true" && _phylum_subdep_components "${__component_prds}" "${__component_prjs}"
 
   #
   # if there is a _tmp_dep_graph then take that structure
@@ -5242,13 +5469,13 @@ declare -A BFLAGS=( \
 
 declare -A BFLAGSTEXT=( \
   [all]="acts as if all BUILD FLAGS are true, essentially rebuilds everything from scratch (logs retained)" \
-  [caches]="cached data from github (home page, contributors, SBOM), phylum project data" \
+  [caches]="cached data from github (home page, contributors, SBOM), and other project data" \
   [cards]="forces all scorecards and checks to run and retry previous error, no cached data is changed" \
   [crit]="forces OSSF Criticality Score to refresh" \
   [deps]="rebuilds all primary dependencies" \
   [hcheck]="forces MITRE Hipcheck to refresh" \
-  [issues]="rebuilds phylum issues from all dependencies" \
-  [job]="rechecks phylum analysis job for updates" \
+  [issues]="rebuilds issues from all dependencies" \
+  [job]="rechecks project dependency source for updates" \
   [meta]="forces GitHub Metadata to refresh" \
   [scard]="forces OSSF Scorecard to refresh" \
   [scores]="rebuilds coalesced scores from all scorecards and checks" \
@@ -5336,7 +5563,8 @@ component=
 puri="${__NULLPURI__}"
 report_type=
 gh_site="${__NULLGH__}"
-phylum_project=${component}
+dependency_src=${component}
+dependency_type=
 
 _sudo=""
 #
@@ -5370,7 +5598,7 @@ while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
     q) quiet="true" ;;
     v) verbose="true" ;;
     B) build_BoE="true" ;;
-    C) component="${OPTARG}"; phylum_project="${component}" ;;
+    C) component="${OPTARG}" ;;
     D) scoreDepth="${OPTARG}"
        ! [[ ${scoreDepth} =~ ^[0-9]+$ ]] && \
          [[ ${scoreDepth} != "all" ]] && \
@@ -5384,8 +5612,31 @@ while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
          __ghSKIP="true"
        ;;
     O) blockNetwork="true" ;;
-    P) phylum_project="${OPTARG}" ;;
-    U) puri="${OPTARG}" ;;
+    P) dependency_src="${OPTARG}"
+       case "${dependency_src/*:/}" in
+         sbom)
+           dependency_src="${dependency_src/:sbom/}"
+           [ -s "${dependency_src}" ] && [ -f "${dependency_src}" ] &&
+             dependency_src="$(realpath "${dependency_src}")" &&
+               dependency_type="${__SBOM__}"
+           [ -s "${component}/${dependency_src}" ] && [ -f "${component}/${dependency_src}" ] &&
+             dependency_src="$(realpath "${component}/${dependency_src}")" &&
+               dependency_type="${__SBOM__}"
+           ;;
+         phylum)
+           dependency_type="${__PHYLUM__}"
+           dependency_src="${dependency_src/:phylum/}"
+           [[ "${dependency_src}" =~ : ]] && puri="${dependency_src}"
+           ;;
+         *)
+           ;;
+       esac
+       ;;
+    U) puri="${OPTARG}"
+       dependency_type="${__PHYLUM__}"
+       dependency_src="${puri}"
+       _warn "-U deprecated, please start to use '-P ${puri}:phylum'"       
+       ;;
     V) echo "Version: ${_version}" && _fatal "" ;;
     W) scoreTimeout="${OPTARG}"
        ! [[ ${scoreTimeout} =~ ^[0-9]+$ ]] && \
@@ -5489,6 +5740,16 @@ mkdir -p logs/
 # this log file will be moved later in cleanup
 #
 [[ -n "${__logfil}" ]] && mv -f "${_rp}" "."
+
+#
+# move the sbom here to the working folder
+# TODO: only move/overwrite if what's specified is newer
+#
+[[ "${dependency_type}" == "${__SBOM__}" ]] && {
+  mv -i "${dependency_src}" .;
+  dependency_src="$(basename "${dependency_src}")";
+  _warn "SBOM dependencies in ${dependency_src} are WIP"
+}
 
 #
 # caches

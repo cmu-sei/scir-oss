@@ -86,7 +86,7 @@ $ ./scir-oss.sh -h
   -G:  set Github project site (REQUIRED)
   -L:  make one or more subreports and exit (default 'all')
   -O:  offline - do not use networking (some capabilities will be degraded) relies on cached data
-  -P:  set project dependency source (default: github:sbom, <jsonfile>:sbom, phylum:<project>, phylum:<uri>) (REQUIRED)
+  -P:  set project dependency source (default: github:sbom, <jsonfile>:sbom, <project>:phylum, <uri>:phylum) (REQUIRED)
        (sbom types automatically detected: SPDX, CycloneDX (coming soon))
   -U:  *deprecated* use package URI spec rather than a Phylum.io project name (e.g., npm:@babel/highlight:^7.18.6)
   -V:  display version (and exit)
@@ -152,7 +152,7 @@ Explaination: TBD
 #### A complete OSS project on GitHub previously analyzed by Phylum.io
 * To make an OSS-P4/R
 ```
-./scir-oss.sh -l -v -D all -B -C fleetth -G fleetdm/fleet -P phylum:fleetth
+./scir-oss.sh -l -v -D all -B -C fleetth -G fleetdm/fleet -P fleetth:phylum
 ```
 * To publish that OSS-P4/R
 ```
@@ -182,7 +182,7 @@ Explaination: TBD
 #### A made-up (local) project previously analyzed by Phylum.io (not on GitHub)
 * To make an OSS-P4/R
 ```
-./scir-oss.sh -C jray -P phylum:jray
+./scir-oss.sh -C jray -P jray:phylum
 ```
 * To publish that OSS-P4/R
 ```
@@ -192,7 +192,7 @@ Explaination: TBD
 #### A known package URI which is on GitHub (helpful if it is known to be on Phylum)
 * To make an OSS-P4/R
 ```
-./scir-oss.sh -C myany -G chrunlee/anywhere-auth -U 'phylum:npm:anywhere-auth:1.0.2'
+./scir-oss.sh -C myany -G chrunlee/anywhere-auth -P 'npm:anywhere-auth:1.0.2:phylum'
 ```
 * To publish that OSS-P4/R
 ```
