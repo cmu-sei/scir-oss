@@ -22,10 +22,15 @@ Open Source Software Project, Product, Protection, and Policy Report
 
 ## SYNOPSIS
 ```
-+--------------------+         +================+         +==================+
-| Analyze Package(s) | ------> | Make an OSS-P4 | ------> | Publish OSS-P4/R |
-| with Phylum.io.    |         | Report         |         | to Confluence    |
-+--------------------+         +================+         +==================+
++--------------------+         
+| Analyze Package(s) |_         
+| with Phylum.io.    | |        
++--------------------+ |        +================+         +==================+
+                       |--(or)->| Make an OSS-P4 | ------> | Publish OSS-P4/R |
++--------------------+ |        | Report         |         | to Confluence    |
+| Submit or generate |-         +================+         +==================+
+| an SBOM            |         
++--------------------+ 
 
 * --> (progresses from (left) to (right))
         (1)                            (2)                         (3)
@@ -33,7 +38,9 @@ Open Source Software Project, Product, Protection, and Policy Report
 (1) See ```docs/``` folder in this repo for examples on various methods to perform analysis
 (2) & (3) Are covered here.
 
-Essentially, ```scir-oss.sh```, (2), Invokes tools and queries data from public and proprietary sources to obtain indicators related to stakeholder concerns on the use of specific open source software products, produced by open source projects using various processes, tools, and methods to protect the integrity of those product(s) produced by the open source projects and along with policies enacted by those projects which may be impactful to the use (or consumption) of a specific open source product. Hence, Open Source Software Project, Product, Protection, and Policy Report (OSS-P4/R)
+Essentially, ```scir-oss.sh```, (2), Invokes tools and queries data from public and proprietary sources to obtain indicators related to stakeholder concerns on the use of specific open source software products, produced by open source projects using various processes, tools, and methods to protect the integrity of those product(s) along with policies enacted by those projects which may be impactful to the use (or consumption) of a specific open source product.
+
+Hence, Open Source Software Project, Product, Protection, and Policy Report (OSS-P4/R)
 
 After obtaining those indicators, ```scir-oss.sh```:
 * Correlates results according to stakeholder criteria
@@ -79,23 +86,24 @@ $ ./scir-oss.sh -h
   -G:  set Github project site (REQUIRED)
   -L:  make one or more subreports and exit (default 'all')
   -O:  offline - do not use networking (some capabilities will be degraded) relies on cached data
-  -P:  set Phylum.io project name (default: same as -C) (REQUIRED)
-  -U:  use package URI spec rather than a Phylum.io project name (e.g., npm:@babel/highlight:^7.18.6)
+  -P:  set project dependency source (default: github:sbom, <jsonfile>:sbom, phylum:<project>, phylum:<uri>) (REQUIRED)
+       (sbom types automatically detected: SPDX, CycloneDX (coming soon))
+  -U:  *deprecated* use package URI spec rather than a Phylum.io project name (e.g., npm:@babel/highlight:^7.18.6)
   -V:  display version (and exit)
   -W:  watch docker scorecards run not to exceed time limit (default: 300 seconds)
-  -Z:  specify certificates trust store when required by enterprise-level proxies
+  -Z:  specify certificates trust store(s) when required by enterprise-level proxies
        which may be in use (e.g. -Z '/etc/ssl/certs/ca-certificates.crt')
 
   BUILD FLAGS (-f 'flag1[,flag2,...]')
 
   all:		acts as if all BUILD FLAGS are true, essentially rebuilds everything from scratch (logs retained)
-  caches:	cached data from github (home page, contributors, SBOM), phylum project data
+  caches:	cached data from github (home page, contributors, SBOM), and other project data
   cards:	forces all scorecards and checks to run and retry previous error, no cached data is changed
   crit:		forces OSSF Criticality Score to refresh
   deps:		rebuilds all primary dependencies
   hcheck:	forces MITRE Hipcheck to refresh
-  issues:	rebuilds phylum issues from all dependencies
-  job:		rechecks phylum analysis job for updates
+  issues:	rebuilds issues from all dependencies
+  job:		rechecks project dependency source for updates
   meta:		forces GitHub Metadata to refresh
   scard:	forces OSSF Scorecard to refresh
   scores:	rebuilds coalesced scores from all scorecards and checks
@@ -144,7 +152,27 @@ Explaination: TBD
 #### A complete OSS project on GitHub previously analyzed by Phylum.io
 * To make an OSS-P4/R
 ```
-./scir-oss.sh -l -v -D all -B -C fleetth -G fleetdm/fleet
+./scir-oss.sh -l -v -D all -B -C fleetth -G fleetdm/fleet -P phylum:fleetth
+```
+* To publish that OSS-P4/R
+```
+./pub-scir.sh -l -v -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area'
+```
+
+#### A complete OSS project on GitHub using an SBOM produced by GitHub
+* To make an OSS-P4/R
+```
+./scir-oss.sh -l -v -D all -B -C fleetth -G fleetdm/fleet -P github:sbom
+```
+* To publish that OSS-P4/R
+```
+./pub-scir.sh -l -v -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area'
+```
+
+#### A complete OSS project on GitHub using an SBOM produced entirely locally
+* To make an OSS-P4/R
+```
+./scir-oss.sh -l -v -D all -B -C fleetth -G fleetdm/fleet -P fleet_syft_sbom.json:sbom
 ```
 * To publish that OSS-P4/R
 ```
@@ -154,7 +182,7 @@ Explaination: TBD
 #### A made-up (local) project previously analyzed by Phylum.io (not on GitHub)
 * To make an OSS-P4/R
 ```
-./scir-oss.sh -C jray
+./scir-oss.sh -C jray -P phylum:jray
 ```
 * To publish that OSS-P4/R
 ```
@@ -164,7 +192,7 @@ Explaination: TBD
 #### A known package URI which is on GitHub (helpful if it is known to be on Phylum)
 * To make an OSS-P4/R
 ```
-./scir-oss.sh -C myany -G chrunlee/anywhere-auth -U 'npm:anywhere-auth:1.0.2'
+./scir-oss.sh -C myany -G chrunlee/anywhere-auth -U 'phylum:npm:anywhere-auth:1.0.2'
 ```
 * To publish that OSS-P4/R
 ```
@@ -216,11 +244,11 @@ drwxr-xr-x 1 user group    2080 mmm dd hh:mm oldjobs
 - ```_ghapi_sbom.json``` is the SBOM generated by GitHub dependency graph API, includes CI/CD tools
 - ```phylum_prjs.json``` is the list of all the Phylum.io projects analyzed for the ```bearer``` token (will be moved soon)
 - ```_dep_digraph.txt``` is the dependency graph of all products in Graphviz format
-- ```_dep_prds.json``` is the list of all the dependency products for the Phylum.io analyzed project
+- ```_dep_prds.json``` is the list of all the dependency products from the project dependency source
 - ```_dep_prjs.csv``` is the list of all the OSS Projects that produce those dependant products
-- ```_job_<jobID>.json``` is the state of the Phylum.io analysis job
+- ```_job_<jobID>.json``` is the state of the project dependency source analysis job (if applicable)
 - ```logs/``` folder containing all the runs (```run-*logs.txt```) and pubs (```pub-*logs.txt```) for the report
-- ```oldjobs/``` backup/history for prior job status (Phylum will re-run analyzes on the backend without prompting)
+- ```oldjobs/``` backup/history for prior job status (Phylum, for example, will re-run analyzes on the backend without prompting)
 
 ##### Dependencies and score cards
 
@@ -294,20 +322,23 @@ These folders contain the level 2 and beyond package dependencies and end in ```
   - URI: ```api.phylum.io/api/v0/projects/```
   - Purpose: to obtain the list of all the phylum.io projects submitted to phylum.io for analysis.
 * ```_dep_prds.json```
-  - command line tool: ```curl```
-  - URI: ```api.phylum.io/api/v0/data/[projects|packages]/:prjid```
-  - Purpose: to obtain phylum.io primary project or primary package details and its dependencies.
+  - command line tool: ```curl``` (except for locally supplied SBOM)
+  - URI: for phylum ```api.phylum.io/api/v0/data/[projects|packages]/:prjid```<br>
+         for SBOM ```github.com/owner:/repo:/dependency-graph/sbom```<br>
+         for (locally) supplied SBOM ```<jsonfile>:sbom
+  - Purpose: to obtain primary project or primary package details and dependencies.
 * ```_dep_prjs.csv```
   - command line tool: ```curl```
-  - URI: ```api.phylum.io/api/v0/data/packages/:puri```
-  - Purpose: to obtain phylum.io sub-dependency package details and, further, its dependencies.
+  - URI: for phylum ```api.phylum.io/api/v0/data/packages/:puri```<br>
+         for SBOM ```github.com/owner:/repo:/dependency-graph/sbom```
+  - Purpose: to obtain sub-dependency package details and, further, dependencies.
   - command line tool: ```curl```
   - URI: ```<site>/:repoUrl```
     - where ```<site>``` is one of ```google.golang.org```, ```golang.org```, ```go.opentelemetry.io```, ```go.elastic.co```, ```cloud.google.com/go```, ```go.uber.org```, ```gotest.tools```, ```go.opencensus.io```, ```go.mozilla.org```, ```gopkg.in```, ```gocloud.dev```
   - Purpose: to scrape reported ```:repoUrl``` for repo/VCS for package's project home.
 * ```_job_<jobID>.json```
   - command line tool: ```curl```
-  - URI: ```api.phylum.io/api/v0/data/jobs/:jobid```
+  - URI: for phylum ```api.phylum.io/api/v0/data/jobs/:jobid```
   - Purpose: to obtain the status of the phylum.io analysis (component or incomplete) as well as other analysis results.
 * ```*.sc.json```
   - command line tool: ```scorecard```
@@ -338,7 +369,7 @@ These folders contain the level 2 and beyond package dependencies and end in ```
 
 - ```_coalesce.csv``` is the aggregation (vertically) of all the score card scores (horizontally)
 - ```_scir.json``` is the answers to the OSS-P4/R template in confluence for the GitHub Project
-- ```_allIssues.json``` is the concatenation of all the Phylum.io issues in one ```json``` for for report writing
+- ```_allIssues.json``` is the concatenation of all the issues in one ```json``` for for report writing
 
 ##### Snippets for Confluence
 - ```_vulmalrep.html```
