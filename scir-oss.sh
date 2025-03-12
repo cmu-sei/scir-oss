@@ -151,6 +151,7 @@ readonly __NULLLOG__
 readonly __TIMEOUT__="300"
 readonly __SBOM__="SBOM"
 readonly __PHYLUM__="PHYLUM"
+readonly __GITHUB__="GITHUB"
 
 #readonly _fpdigitsRE='^[+-]?[0-9]+([.][0-9]+)?$'
 readonly _fpdigitsRE='^[+-]?[0-9]*([.][0-9]+)?$'
@@ -1766,11 +1767,8 @@ _sbom_val()
   local _v
 
   #
-  # assumes that this SBOM is from GitHub (the .sbom key)
-  # and assumes the SBOM confirms to SPDX (the .spdxVersion)
-  # TODO: auto-sense the SBOM format (e.g., spdx, syft,
-  #       cycloneDX, etc.)
-  _v=$(jq -r '[ .sbom.spdxVersion,.sbom.creationInfo.creators[0] ]|@csv' "${1}" | sed 's/null//g;s/"//g;s/,/, /g')
+  # TODO: cycloneDX, syft, etc.)
+  _v=$(jq -r 'if (.sbom) then .sbom else . end|[ .spdxVersion,.creationInfo.creators ]|@text' "${1}" | sed 's/\[//g;s/\]//g;s/"//g')
   [[ -z "${_v}" ]] && _v="manual";
 
   echo -n "${_v}"
@@ -2791,8 +2789,10 @@ _phylum_prjId()
   export _prj;
 
   "${_dolabel}" && _label="Package URI: "
+  [[ "${dependency_type}" == "${__SBOM__}" ]] && "${_dolabel}" && _label="Package ${__SBOM__}: ${dependency_src}, "
 
   [[ "${puri}" != "${__NULLPURI__}" ]] && echo "${_label}${puri}" && return
+  [[ "${dependency_type}" == "${__SBOM__}" ]] && echo "${_label}$(grep SBOM, "${2}" | cut -d, -f3)" && return
 
   "${_dolabel}" && _label="Phylum Project ID: "
 
@@ -2815,6 +2815,7 @@ _phylum_jobId()
   local _jobFile
   local _verb
 
+  [[ ${dependency_type} == "${__SBOM__}" ]] && jq -r 'if (.sbom) then .sbom else . end|.creationInfo.created' "${dependency_src}" && return
   ${_phylum_jobId_BHDT} && jq -r '[.latestJobId,.updatedAt]|@csv' "${2}" | sed 's/"//g' && return
 
   #
@@ -2896,6 +2897,7 @@ _phylum_jobStatus()
 {
  local _job
 
+  [[ ${dependency_type} == "${__SBOM__}" ]] && echo "complete" && return
   [[ "${puri}" != "${__NULLPURI__}" ]] && echo "" && return
 
  _job="$(_phylum_jobId "${1}" "${2}")"
@@ -2909,8 +2911,10 @@ _phylum_jobReport()
 {
   local _status
   local _jobUpdated
+  local _label="Phylum Job last"
 
   [[ "${puri}" != "${__NULLPURI__}" ]] && echo "Job Analysis N/A for Package URI (-U)" && return
+  [[ "${dependency_type}" == "${__SBOM__}" ]] && _label="${__SBOM__} created on"
 
   [[ ${1} == --readOnly ]] && _phylum_jobId_BHDT="true" && shift 1
 
@@ -2920,7 +2924,7 @@ _phylum_jobReport()
 
   [[ "${_status}" == "incomplete" ]] && _status="${__REDFLAG__}${_status}"
 
-  echo "Phylum Job last ${_jobUpdated/,/ updated at } (${_status})"
+  echo "${_label} ${_jobUpdated/,/ updated at } (${_status})"
 }
 
 #
@@ -3078,6 +3082,7 @@ _phylum_dep_components()
 
   if [[ "${dependency_type}" == "${__SBOM__}" ]]; then
     _prjid=sbom
+    [[ "${dependency_src^^}" == "${__GITHUB__}" ]] && dependency_src="$(grep SBOM, "${__phy_prjs}" | cut -d, -f4)"
     __sbom_deps "${dependency_src}" "${_prjid}" "${1}" "${3}"
   else
     _apiMethod="projects"
@@ -4063,6 +4068,46 @@ coalesce_scorecards()
   return
 }
 
+_phy_prj_cache()
+{
+  _say -n "checking Phylum project caches..."
+
+  { ${BFLAGS[caches]} || ${force_rebuild}; } &&
+    _say -n "forced clearing PH project caches..." && rm -f "${__phy_prjs}"
+
+  [[ "${puri}" != "${__NULLPURI__}" ]] && echo "${puri},$(makePuri "${puri}")" > "${__phy_prjs}"
+
+  #
+  # TODO: fix paginate.limit, this will work for phylum accounts
+  #       with 100 or less projects, any more and a loop is
+  #       needed to retrieve all the project ids
+  #
+  [ ! -f "${__phy_prjs}" ] &&
+    _say -n "building Phylum project caches..." &&
+    (
+      (
+        curl --silent --request GET \
+          --url 'https://api.phylum.io/api/v0/projects/?paginate.limit=100' \
+          --header 'accept: application/json' \
+          --header "authorization: Bearer $(phylum auth token --bearer)" \
+          -o "${__phy_prjs}"
+      ) ||
+      (
+        _fatal "phylum-api project pre-cache failed."
+      )
+    )
+
+  [ ! -f "${__phy_prjs}" ] || [ ! -s "${__phy_prjs}" ] &&
+    _fatal "${__phy_prjs} is missing or empty"
+
+  _say "OK"
+
+  [ "$(find "${__phy_prjs}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
+    _warn "${__phy_prjs} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+
+  return
+}
+
 #
 # builds frequently referenced (json) data sources
 # for a phylum project and its GitHub counterparts
@@ -4223,46 +4268,20 @@ build_caches()
   #########
   # 
   [[ "${dependency_type}" == "${__SBOM__}" ]] && {
-    [ ! -f "${__phy_prjs}" ] && touch "${__phy_prjs}"
-    return
+    # in lieu of _sbom_prj_cache as this SBOM is the only project for this component
+    if [[ "${dependency_src^^}" == "${__GITHUB__}" ]]; then
+      echo "${dependency_type},${__ghrsbomjson},$(md5sum "${__ghrsbomjson}" | sed 's/  /,/')" > "${__phy_prjs}"
+      dependency_src="${__ghrsbomjson}"
+    else
+      echo "${dependency_type},${dependency_src},$(md5sum "${dependency_src}" | sed 's/  /,/')" > "${__phy_prjs}"
+    fi
   }
 
   #########
   # pre-cache phylum projects
-  _say -n "checking Phylum project caches..."
-
-  { ${BFLAGS[caches]} || ${force_rebuild}; } &&
-    _say -n "forced clearing PH project caches..." && rm -f "${__phy_prjs}"
-
-  [[ "${puri}" != "${__NULLPURI__}" ]] && echo "${puri},$(makePuri "${puri}")" > "${__phy_prjs}"
-
-  #
-  # TODO: fix paginate.limit, this will work for phylum accounts
-  #       with 100 or less projects, any more and a loop is
-  #       needed to retrieve all the project ids
-  #
-  [ ! -f "${__phy_prjs}" ] &&
-    _say -n "building Phylum project caches..." &&
-    (
-      (
-        curl --silent --request GET \
-          --url 'https://api.phylum.io/api/v0/projects/?paginate.limit=100' \
-          --header 'accept: application/json' \
-          --header "authorization: Bearer $(phylum auth token --bearer)" \
-          -o "${__phy_prjs}"
-      ) ||
-      (
-        _fatal "phylum-api project pre-cache failed."
-      )
-    )
-
-  [ ! -f "${__phy_prjs}" ] || [ ! -s "${__phy_prjs}" ] &&
-    _fatal "${__phy_prjs} is missing or empty"
-
-  _say "OK"
-
-  [ "$(find "${__phy_prjs}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${__phy_prjs} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+  [[ "${dependency_type}" == "${__PHYLUM__}" ]] && {
+     _phy_prj_cache
+  }
 
   return
 }
@@ -5271,18 +5290,21 @@ __main__()
 
   _level=1
   ${BFLAGS[deps]} && component_dep_rebuild="true"
-  (${component_dep_rebuild} || ${force_rebuild} ||
-    [ ! -s "${__component_prds}" ] || [ ! -s "${__component_prjs}" ]) &&
+  { ${force_rebuild} || ${component_dep_rebuild} ||
+    [ ! -s "${__component_prds}" ] || [ ! -s "${__component_prjs}" ]; } &&
       _say "rebuilding links to ${component} dependencies..." &&
       _phylum_dep_components "${component}" "${__phy_prjs}" \
         "${__component_prds}" "${__component_prjs}" "${_level}" &&
       scorecard_rebuild="true" &&
+      component_subdep_rebuild="true" &&
       echo 0,"${__gh}","${__gh}","${__gh}",000 >> "${__component_prjs}"
 
   #
   # TODO: go n levels deep on dependencies
-  #       based on phylum API
+  #       based on dependency specifications
   #       still under test not happy with output yet
+  # TODO: trigger a subdep rebuild of depth changed
+  #       to be automatic workaround is the -f subdeps flag
   #
   #        [ ! -s "${__component_prjs}".subs ]) &&
   ${BFLAGS[subdeps]} && component_subdep_rebuild="true"
@@ -5290,8 +5312,6 @@ __main__()
     [ ! -s "${__component_prjs}" ]; } &&
       _say "rebuilding links to ${component} sub-dependencies..." &&
       _phylum_subdep_components "${__component_prds}" "${__component_prjs}"
-# testing since new dep depth doesn't quite work they way i'd like
-component_subdep_rebuild="true" && _phylum_subdep_components "${__component_prds}" "${__component_prjs}"
 
   #
   # if there is a _tmp_dep_graph then take that structure
@@ -5622,6 +5642,10 @@ while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
            [ -s "${component}/${dependency_src}" ] && [ -f "${component}/${dependency_src}" ] &&
              dependency_src="$(realpath "${component}/${dependency_src}")" &&
                dependency_type="${__SBOM__}"
+           if [[ "${dependency_src^^}" = "${__GITHUB__}" ]]; then
+             # at this point not sure of the actual SBOM to be pulled from GHAPI
+             dependency_type="${__SBOM__}"
+           fi
            ;;
          phylum)
            dependency_type="${__PHYLUM__}"
@@ -5746,9 +5770,9 @@ mkdir -p logs/
 # TODO: only move/overwrite if what's specified is newer
 #
 [[ "${dependency_type}" == "${__SBOM__}" ]] && {
-  mv -i "${dependency_src}" .;
+  [[ "${dependency_src^^}" != "${__GITHUB__}" ]] && mv -i "${dependency_src}" .;
   dependency_src="$(basename "${dependency_src}")";
-  _warn "SBOM dependencies in ${dependency_src} are WIP"
+  _warn "SBOM dependencies in '${dependency_src}' are WIP"
 }
 
 #

@@ -60,6 +60,36 @@ git remote -v
 origin	https://github.com/cmu-sei/scir-oss.git (fetch)
 origin	https://github.com/cmu-sei/scir-oss.git (push)
 ```
+### Localizations
+
+#### SCIR-OSS Runtime (```<installpath>/settings/scir-oss/localizations.lib.sh```)
+
+Specify which ```docker``` containers (or equivalent binaries) to use.
+```
+#
+# use docker hub and OSSF images
+#
+_LOCAL_OSSFSC="gcr.io/openssf/scorecard:latest"
+_LOCAL_OSSFCS="${HOME}/go/bin/criticality_score"
+_LOCAL_MITRHC="mitre/hipcheck:latest"
+```
+#### SCIR-OSS Report Writing (```<installpath>/settings/scir-oss/reportWriter_criteria_desc_lib.sh.<language>```)
+
+Specify labels and descriptions for the final ```json``` and ```html``` report.
+```
+_LOCAL_ABANDONED_PROJECTS_DESC="Projects identified, explicitly by way of OSSF Scorecard and/or GitHub's API as being marked as archived"
+_LOCAL_ABANDONED_PROJECTS_ID="Abandoned_Projects"
+_LOCAL_ABANDONED_PROJECTS_LABEL="Number of Abandoned Project(s)"
+_LOCAL_ABANDONED_PROJECTS_RISK="abandoned projects may have faults and vulnerabilities that may never by fixed"
+```
+#### PUB-SCIR Runtime (```<installpath>)/settings/pub-scir/localizations.lib.sh```)
+
+Specify defaults for the Altassan Confluence Server, Confluence Space Key, and Ancestor Title
+```
+_LOCAL_CONFSVR="https://confluence.myhost.example.com"
+_LOCAL_spaceKey="MYDOCS"
+_LOCAL_ancestorTitle="OSS-P4 Reports"
+```
 ### Command line
 
 #### scir-oss: Make an OSS-P4/R
