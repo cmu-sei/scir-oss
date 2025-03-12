@@ -25,11 +25,11 @@ Open Source Software Project, Product, Protection, and Policy Report
 +--------------------+         
 | Analyze Package(s) |_         
 | with Phylum.io.    | |        
-+--------------------+ |        +================+         +==================+
-                       |--(or)->| Make an OSS-P4 | ------> | Publish OSS-P4/R |
-+--------------------+ |        | Report         |         | to Confluence    |
-| Submit or generate |-         +================+         +==================+
-| an SBOM            |         
++--------------------+ v        +================+         +==================+
+                      (or)----->| Make an OSS-P4 | ------> | Publish OSS-P4/R |
++--------------------+ ^        | Report         |         | to Confluence    |
+| Submit or generate | |         +================+         +==================+
+| an SBOM            |-|       
 +--------------------+ 
 
 * --> (progresses from (left) to (right))
