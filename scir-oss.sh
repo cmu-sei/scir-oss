@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
 #
 
-readonly _version="pubRel 250311a (branch: publicRelease)"
+readonly _version="pubRel 250313a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -2427,30 +2427,39 @@ _totalRuntime()
 
 #
 # sanitize all github urls to only have :owner:/:repo:
-# pattern, no extra paths, no .git at the end
-# as such fail with GH API and tools that use it
+# pattern, no extra paths, no .git at the end or git+ at
+# beginning as such fail with GH API and tools that use it
 #
 _gh_sanitize_url()
 {
-  local _uriS="${1}"
+  local _uriS
 
+  [[ -z "${1}" ]] && echo "" && return
+
+  _uriS="${1}"
+
+  #
+  # some of these results are old and still use http:
+  # fix that here
+  #
+  [[ ${_uriS,,} =~ ^http: ]] && _uriS="${_uriS/p\:/ps\:}"
+
+  #
+  # other path mangle if URI is for github.com
+  #
   { [[ ${_uriS,,} =~ ^https://github.com/ ]] && _uriS="$(cut -d/ -f1-5 <<<"${_uriS}")"; } ||
   { [[ ${_uriS,,} =~ ^github.com/ ]]         && _uriS="$(cut -d/ -f1-3 <<<"${_uriS}")"; }
 
+  _uriS="${_uriS/#git+}"
   echo "${_uriS/%\.git/}"
   return
 }
 
-#
-# customized digger to scrape a site looking for
-# and URL/URI pointing to GitHub
-# (handcrafted--needs care and feeding-sorry)
-#
-_dig4repo()
+golang_scraper()
 {
-  _ret="unknown"
-
-  [[ "${1}" =~ ^github ]] && _gh_sanitize_url "${1}" && return 0
+  local _r
+  local _u
+  local _ret
 
   case "${1}" in
     google.golang.org/*)
@@ -2475,11 +2484,132 @@ _dig4repo()
       _r=$(curl -L --silent --request GET --url "${1}" -o - | grep -E "go-source" | cut -d\" -f4 | cut -d\  -f2)
       ;;
     *) _r=""
-      _say "unknown repo pattern" "${1}"
+      _say "unknown golang repo pattern" "${1}"
       ;;
   esac
 
-  [ -n "${_r}" ] && _ret="${_r}"
+  [ -z "${_ret}" ] && _ret="unknown"
+  _gh_sanitize_url "${_ret}"
+  return
+}
+
+#
+# dep is: 'npm:@adobe/css-tools:v4.3.3'
+# passed is: '@adobe/css-tools:v4.3.3'
+# needed:     ^^^^^^^^^^^^^^^^
+# pretty much all up and until the ':' version component
+# TODO: there may be a rate limiter involved, which needs
+#       to be looked into and implemented if so
+#
+npm_scraper()
+{
+  local _ret
+  local _srch
+  
+  _srch="$(cut -d: -f1 <<<"${1}")"
+
+  _say "npm scrapping repo for ${_srch}"
+
+  #
+  # TODO: this is an optimistic search (size=1) is this
+  #       too optimistic/narrow - as the json returned
+  #       for npm matches are really fuzzy as I can tell
+  #       --write-out "%{http_code}"
+  #
+  #_ret="$(curl --silent --location \
+  #  "https://registry.npmjs.com/-/v1/search?text=${_srch}&size=1" \
+  #  | jq -r --arg srch "${_srch}" '
+  #    .objects[]
+  #      |.package.links
+  #        |select (.npm |contains($srch))|.repository
+  #  ')"
+  curl --silent --location --write-out "%{http_code}" \
+    "https://registry.npmjs.com/-/v1/search?text=${_srch}&size=1" -o /tmp/npmjs.out >/tmp/http_code.out 
+
+  _rc="${?}"
+  read -r _code </tmp/http_code.out
+  #
+  # TODO: impl try try loop
+  # there is a 429 code rate limit with the file containing error code: 1015
+  sleep "$(echo "$(shuf -i 700-1100 -n 1)" / 1000|bc -l)"
+
+  _say "npmjs: ${_rc} with ${_code}"
+  _ret="$(jq -r --arg srch "${_srch}" '
+      .objects[]
+        |.package.links
+          |select (.npm |contains($srch))|.repository
+    ' < /tmp/npmjs.out)"
+
+  [ -z "${_ret}" ] && _ret="unknown"
+  _gh_sanitize_url "${_ret}"
+  return
+}
+
+#
+# dep is: 'maven:com.amazonaws:aws-java-sdk-core:1.11.571'
+# passed is: 'com.amazonaws:aws-java-sdk-core:1.11.571'
+# we need:    ^^^^^^^^^^^^^ ^^^^^^^^^^^^^^^^^ ^^^^^^^^
+# becomes:    com/amazonaws/aws-java-sdk-core/1.11.571/aws-java-sdk-core-1.11.571.pom
+#
+maven_scraper()
+{
+  local _ret
+  local _srch
+
+  _srch="$( \
+    { cut -d: -f1 <<<"${1}" | sed 's/\./\//g;s/$/\//'; \
+      cut --output-delimiter=/ -d: -f2,3 <<<"${1}"; \
+      echo -n /; cut --output-delimiter=- -d: -f2,3 <<<"${1}"; \
+      echo -n ".pom"; } \
+    | tr -d '\n' \
+    )"
+
+  _say "npm scrapping repo for ${_srch}"
+
+  _ret="$(curl --silent --location \
+    "https://repo1.maven.org/maven2/${_srch}" \
+    | grep -B 10 -E '(</scm>)' \
+    | grep -E '(<url>)' \
+    | grep github \
+    )"
+
+  [ -z "${_ret}" ] && _ret="unknown"
+  _ret="echo ${_ret/#<url>}"
+  _gh_sanitize_url "${_ret/%<\/url>}"
+  return
+}
+
+#
+# invokes custom scrapers to scrape a site looking for
+# and URL/URI pointing to GitHub
+#
+# must return "unknown" OR "" if not known
+#
+_dig4repo()
+{
+  local _eco
+  local _scraper_fn
+  local _ret
+
+  _ret="unknown"
+
+  [[ "${1}" =~ ^github ]] && _gh_sanitize_url "${1}" && return 0
+
+  _eco="$(cut -d: -f1 <<<"${1}")"
+  _scraper_fn="${_eco}_scraper" 
+
+  #
+  # invoke the scaper function for the eco system passed
+  # without the _eco portion of the puri
+  #
+  [[ -n "$(type -t "${_scraper_fn}")" ]] &&
+    [[ "$(type -t "${_scraper_fn}")" = "function" ]] &&
+      "${_scraper_fn}" "${1/${_eco}:}" &&
+        return
+
+  #
+  # other wise a scraper function has not been yet defined
+  #
 
   _gh_sanitize_url "${_ret}"
   return
@@ -3122,7 +3252,7 @@ _phylum_dep_components()
         _cmp="${_c}"
       fi
 
-      _repo=$(_dig4repo "${_dep}")
+      _repo=$(_dig4repo "${_cmp}")
       if [ "${_repo}" == "unknown" ] && [ -n "${_r/null/}" ]; then
         _r=${_r//https:\/\//}
         _r=${_r//http:\/\//}
@@ -4604,7 +4734,7 @@ check_runtime()
   #
   # the binaries
   #
-  for cmd in bc jq curl docker base64 phylum iconv "${_OSSFCS}"
+  for cmd in bc jq curl docker base64 phylum iconv shuf sha256sum "${_OSSFCS}"
   do
     [ -z "$(command -v "${cmd}")" ] &&
       _err "required command, ${cmd}: not found in path or not installed" &&

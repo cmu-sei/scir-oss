@@ -460,9 +460,10 @@ criticality_score v1.0.8
 curl 7.68.0
 Docker version 20.10.12
 base64 (GNU coreutils) 8.30
-phylum v5.9.0
+phylum v7.3.0
 iconv (GNU libiconv 1.11)
 sha256sum (GNU coreutils) 8.30
+shuf (GNU coreutils) 8.30
 tar (GNU tar) 1.30
 ```
 
