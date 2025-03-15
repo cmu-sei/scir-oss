@@ -1,9 +1,9 @@
 #!/bin/bash
 #
 # Open Source P4 Tool
-# 
+#
 # Copyright 2024 Carnegie Mellon University.
-# 
+#
 # NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
 # INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
 # UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
@@ -11,7 +11,7 @@
 # OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
 # MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
 # WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
-# 
+#
 # Licensed under a MIT-style license, please see license.txt or contact permission@sei.cmu.edu for full terms.
 #
 # [DISTRIBUTION STATEMENT A] This material has been approved for public
@@ -22,8 +22,8 @@
 # subject to its own license.
 #
 # DM24-0786
-# 
- 
+#
+
 #
 # to find main search down for __main__
 # bash entrypoint (bash script start) search down for __entrypoint__
@@ -108,7 +108,7 @@ _fatal()
 }
 
 #
-# using package names from phylum results in 
+# using package names from phylum results in
 # bad string chars for unix files, ensure there
 # are no strange chars in the filename
 #
@@ -152,6 +152,7 @@ readonly __TIMEOUT__="300"
 readonly __SBOM__="SBOM"
 readonly __PHYLUM__="PHYLUM"
 readonly __GITHUB__="GITHUB"
+readonly __NOASSERTION__="unknown"
 
 #readonly _fpdigitsRE='^[+-]?[0-9]+([.][0-9]+)?$'
 readonly _fpdigitsRE='^[+-]?[0-9]*([.][0-9]+)?$'
@@ -711,7 +712,7 @@ _as_of()
   local rpt
 
   now=$(date +%s)
-  rpt=$(stat --printf=%Y "${1}") 
+  rpt=$(stat --printf=%Y "${1}")
   echo "$(( (now-rpt) / 60 / 60 / 24 )) days ago"
   return
 }
@@ -1004,7 +1005,7 @@ _compute_p4_scores()
       jq -r '.passing[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${2}" ; \
       jq -r '.failing[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${2}" ; \
       jq -r '.errored[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${2}" ; \
-    } | sed 's/[",]//g') 
+    } | sed 's/[",]//g')
 
     _HCrationale=$(jq -r '.rationale|@base64d' "${2}" |
       grep Recommendation -A 1 |
@@ -1401,7 +1402,7 @@ _wwwhtml_tabledata_start()
     _v="${1/hdr=}";
     [[ -n ${_v} ]] && _beg="<th>";
   }
- 
+
   echo "${_beg}${_v}"
   return
 }
@@ -1737,7 +1738,7 @@ _contrib_count()
   ${__ghSKIP} && echo "Unknown, project is not on GitHub" && return
 
   local _c
-  
+
   _c=$(jq -r '.[]|.login' "${1}" |wc -l)
   [[ ${_c} -lt ${__CONTRIBCNT__} ]] && _c="${__WARNING__}${_c}"
 
@@ -1783,7 +1784,7 @@ _day_last()
   local last
   local days
 
-  rpt=$(stat --printf=%Y "${1}") 
+  rpt=$(stat --printf=%Y "${1}")
   # date +%s --date=2023-01-27T23:27:19Z
   last=$(date +%s --date="$(jq -j '.pushed_at' "${1}")")
   days="$(( (rpt-last) / 60 / 60 / 24 ))"
@@ -1799,7 +1800,7 @@ _day_first()
   local created
   local days
 
-  rpt=$(stat --printf=%Y "${1}") 
+  rpt=$(stat --printf=%Y "${1}")
   created=$(date +%s --date="$(jq -r '.created_at' "${1}")")
   days="$(( (rpt-created) / 60 / 60 / 24 ))"
   echo "$(_fotp "${days}" "${__DAYSNEW__}")${days} days, on $(date --date="$(jq -j '.created_at' "${1}")"), reported $(_as_of "${1}")"
@@ -2457,38 +2458,46 @@ _gh_sanitize_url()
 
 golang_scraper()
 {
-  local _r
-  local _u
+  local _hop
+  local _srch
   local _ret
 
-  case "${1}" in
+  _srch="${1/%@*}"
+
+  _say -n "golang scrapping repo for ${_srch} at ";
+
+  case "${_srch}" in
     google.golang.org/*)
-      _say "a scrapping repo" "${1}"
-      _r=$(curl -L --silent --request GET --url "${1}" -o - | grep -E -i -A 10 "(repository)" | grep -E -i  "([[:space:]]github)" | sed 's/^[[:space:]]*//g')
+      _say "a scrapping repo" "${_srch}"
+      _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E -i -A 10 "(repository)" | grep -E -i  "([[:space:]]github)" | sed 's/^[[:space:]]*//g')
       ;;
     golang.org/*|go.opentelemetry.io/*|go.elastic.co/*|cloud.google.com/go/*|go.uber.org/*|gotest.tools/*|go.opencensus.io)
-      _say "b scrapping repo" "${1}"
-      _u=$(curl -L --silent --request GET --url "${1}" -o - | grep -E href= | cut -d\" -f2)
-      _r=$(curl -L --silent --request GET --url "${_u}" -o - |grep -E -A 3 Repository |grep -E noopener | cut -d\" -f2)
+      _say "b scrapping repo" "${_srch}"
+      _hop=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E href= | cut -d\" -f2)
+      _ret=$(curl -L --silent --request GET --url "${_hop}" -o - |grep -E -A 3 Repository |grep -E noopener | cut -d\" -f2)
       ;;
     go.mozilla.org/*)
-      _say "c scrapping repo" "${1}"
-      _r=$(curl -L --silent --request GET --url "${1}" -o - | grep -E href= | grep source | cut -d\" -f2)
+      _say "c scrapping repo" "${_srch}"
+      _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E href= | grep source | cut -d\" -f2)
       ;;
     gopkg.in/*)
-      _say "d scrapping repo" "${1}"
-      _r=$(curl -L --silent --request GET --url "${1}" -o - | grep btn | grep github | cut -d\" -f4)
+      _say "d scrapping repo" "${_srch}"
+      _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep btn | grep github | cut -d\" -f4)
       ;;
     gocloud.dev)
-      _say "e scrapping repo" "${1}"
-      _r=$(curl -L --silent --request GET --url "${1}" -o - | grep -E "go-source" | cut -d\" -f4 | cut -d\  -f2)
+      _say "e scrapping repo" "${_srch}"
+      _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E "go-source" | cut -d\" -f4 | cut -d\  -f2)
       ;;
-    *) _r=""
-      _say "unknown golang repo pattern" "${1}"
+    github.com/*)
+      _say "f returning repo" "${_srch}"
+      _ret="${_srch}"
+      ;;
+    *) _ret=""
+      _say "unknown golang repo pattern" "${_srch}"
       ;;
   esac
 
-  [ -z "${_ret}" ] && _ret="unknown"
+  [ -z "${_ret}" ] && _ret="${__NOASSERTION__}"
   _gh_sanitize_url "${_ret}"
   return
 }
@@ -2498,14 +2507,20 @@ golang_scraper()
 # passed is: '@adobe/css-tools:v4.3.3'
 # needed:     ^^^^^^^^^^^^^^^^
 # pretty much all up and until the ':' version component
+# see: https://github.com/npm/registry/blob/main/docs/REGISTRY-API.md#get-v1search
+# NB: deprecated packages may not show up (unknown) or match
+# a similary named path, e.g, npm:babel-eslint:9.0.0 (deprecated)
+# may match pattern like package/@babel/eslint-plugin a false positive!
+# should be github.com/babel/babel-eslint rather than falsely github.com/babel/babel
+# TODO: fix matching and/or detect deprecated which the jq contains contributes
+# TODO: see if the &scope=foo (e.g., @adobe) makes a real difference
 # TODO: there may be a rate limiter involved, which needs
 #       to be looked into and implemented if so
-#
 npm_scraper()
 {
   local _ret
   local _srch
-  
+
   _srch="$(cut -d: -f1 <<<"${1}")"
 
   _say "npm scrapping repo for ${_srch}"
@@ -2524,7 +2539,8 @@ npm_scraper()
   #        |select (.npm |contains($srch))|.repository
   #  ')"
   curl --silent --location --write-out "%{http_code}" \
-    "https://registry.npmjs.com/-/v1/search?text=${_srch}&size=1" -o /tmp/npmjs.out >/tmp/http_code.out 
+    "https://registry.npmjs.com/-/v1/search?text=${_srch}&size=1" \
+    -o /tmp/npmjs.out > /tmp/http_code.out
 
   _rc="${?}"
   read -r _code </tmp/http_code.out
@@ -2540,7 +2556,7 @@ npm_scraper()
           |select (.npm |contains($srch))|.repository
     ' < /tmp/npmjs.out)"
 
-  [ -z "${_ret}" ] && _ret="unknown"
+  [ -z "${_ret}" ] && _ret="${__NOASSERTION__}"
   _gh_sanitize_url "${_ret}"
   return
 }
@@ -2564,7 +2580,7 @@ maven_scraper()
     | tr -d '\n' \
     )"
 
-  _say "npm scrapping repo for ${_srch}"
+  _say "maven scrapping repo for ${_srch}"
 
   _ret="$(curl --silent --location \
     "https://repo1.maven.org/maven2/${_srch}" \
@@ -2573,17 +2589,58 @@ maven_scraper()
     | grep github \
     )"
 
-  [ -z "${_ret}" ] && _ret="unknown"
-  _ret="echo ${_ret/#<url>}"
+  [ -z "${_ret}" ] && _ret="${__NOASSERTION__}"
+  _ret="${_ret/#*<url>}"
   _gh_sanitize_url "${_ret/%<\/url>}"
   return
 }
 
 #
-# invokes custom scrapers to scrape a site looking for
-# and URL/URI pointing to GitHub
+# inspired by https://github.com/hugovk/pypi-tools/blob/main/source_finder.py
 #
-# must return "unknown" OR "" if not known
+# dep is: 'pypi:jira:>=3.1.1'
+# passed is: 'jira:>=3.1.1'
+# we need:    ^^^^   ^^^^^
+# becomes:    jira/3.1.1/json
+# and there is this pattern: pypi:typed-ast:<2,>=1.4.0
+# it seems at the moment, passing 'jira/json' is also acceptable
+# so may not need to deal with version range specifications
+#
+pypi_scraper()
+{
+  local _ret;
+  local _srch;
+
+  _srch="${1%:*}"
+
+  _say "pypi scrapping repo for ${_srch}";
+
+  _ret="$(curl --silent --location \
+    "https://pypi.org/pypi/${_srch}/json" -o - \
+    | jq -r '
+      .info
+      |.project_urls
+      |[.]
+      ' \
+    | grep -i "github.com" \
+    | sed 's^[[:space:]].*https://^https://^g;s/"$/",/g' \
+    | sort \
+    | uniq \
+    | sed 's/",/,/g' \
+    | tr -d '\n' \
+    | sed 's/,$//g' \
+    )"
+
+  [ -z "${_ret}" ] && _ret="${__NOASSERTION__}";
+  _gh_sanitize_url "${_ret}";
+  return
+}
+
+#
+# invokes custom scrapers to scrape a site or API
+# looking for and URL/URI pointing to GitHub
+#
+# must return "unknown" (${__NOASSERTION__} ) OR "" if not known
 #
 _dig4repo()
 {
@@ -2591,12 +2648,14 @@ _dig4repo()
   local _scraper_fn
   local _ret
 
-  _ret="unknown"
+  _ret="${__NOASSERTION__}"
 
-  [[ "${1}" =~ ^github ]] && _gh_sanitize_url "${1}" && return 0
+  { [[ -z "${1/%null/}" ]] || [[ "${1}" =~ ^github.com/ ]]; } &&
+    _gh_sanitize_url "${1/%null/${__NOASSERTION__}}" &&
+      return
 
   _eco="$(cut -d: -f1 <<<"${1}")"
-  _scraper_fn="${_eco}_scraper" 
+  _scraper_fn="${_eco}_scraper"
 
   #
   # invoke the scaper function for the eco system passed
@@ -2606,7 +2665,6 @@ _dig4repo()
     [[ "$(type -t "${_scraper_fn}")" = "function" ]] &&
       "${_scraper_fn}" "${1/${_eco}:}" &&
         return
-
   #
   # other wise a scraper function has not been yet defined
   #
@@ -2681,13 +2739,13 @@ pull_ghSBOM()
 
 readonly _phy_pkg_api_retry_count=3
 pull_phyPackage()
-{ 
+{
   local _phy_pkg=${1}
   local _outfile=${2}
   readonly _phy_pkg
   readonly _outfile
   local _retry=1
-  
+
   #
   # do until a success or break after retries
   #
@@ -2716,11 +2774,11 @@ pull_phyPackage()
       _say "curl failed: penalty sleep of 3 $(phylum auth status 2>/dev/null 1>&2; echo ${?})" && sleep 3
     fi
   done #}
-  
+
   #
   # default return fail
   return 1
-} 
+}
 
 # Phylum API mangling
 #
@@ -2781,7 +2839,7 @@ _dig4subdep()
   readonly _lev
   readonly _ftoupdate
   readonly _c
- 
+
   #
   # find all reasons to return to avoid infinite recursion
   #
@@ -2816,7 +2874,7 @@ _dig4subdep()
   # verbose symbol
   #   ^: is were returning from a completed visit (mostly seen)
   #   %: in the middle of a previous visit (rarely seen)
-  #      
+  #
   [ -f "${_depout}_deps.json.visited" ] && _say "-n" "^" && return
   [ -f "${_depout}_deps.json.visited.err" ] && _say "-n" "^" && return
   [ -f "${_depout}_deps.json.visiting" ] && _say "-n" "%" && return
@@ -2874,7 +2932,7 @@ _dig4subdep()
   #       exists as it is after the dependency pull
   #
   _r="$(jq -r '.repoUrl|select(.!=null)' "${_depout}_deps.json")"
-  [[ -z "${_r}" ]] && _r="unknown"
+  [[ -z "${_r}" ]] && _r="${__NOASSERTION__}"
   # if (! grep -q ${id} /etc/passwd) && (! grep ${id} /etc/group); then echo not there; fi
   if ! grep -q --fixed-strings ",${_c}," "${_ftoupdate}"; then echo "${_lev},${_c},${_r},${_r},200" >> "${_ftoupdate}"; fi
 
@@ -2926,8 +2984,8 @@ _phylum_prjId()
 
   "${_dolabel}" && _label="Phylum Project ID: "
 
-  echo "${_label}$(jq -r '                
-    .values[] | select(.name==env._prj) | 
+  echo "${_label}$(jq -r '
+    .values[] | select(.name==env._prj) |
       [ .name,.id ] | @csv' "${2}" | \
     cut -d, -f2 | sed 's/"//g')"
 }
@@ -3253,7 +3311,7 @@ _phylum_dep_components()
       fi
 
       _repo=$(_dig4repo "${_cmp}")
-      if [ "${_repo}" == "unknown" ] && [ -n "${_r/null/}" ]; then
+      if [ "${_repo}" == "${__NOASSERTION__}" ] && [ -n "${_r/null/}" ]; then
         _r=${_r//https:\/\//}
         _r=${_r//http:\/\//}
         _repo=$(_dig4repo "${_r}")
@@ -3328,12 +3386,12 @@ _phylum_subdep_components()
     done #}
 
   # TODO: to rebuild/pass over all previously
-  #       (sub) dependencies found, need to 
+  #       (sub) dependencies found, need to
   #       iterate over "${__component_prjs}".subs
   #       this would revisit all prior subs found
   #       and pick up where prior passed failed
   #       to successfully pull deps. Starting from
-  #       level 0 (${__component_prjs}) would 
+  #       level 0 (${__component_prjs}) would
   #       likely fail as the traveler could see
   #       the top level had already been visited
 }
@@ -3403,7 +3461,7 @@ _run_ghmeta()
     cp /dev/null "${_joutput}"
 
   [ ! -s "${_joutput}" ] &&
-    _say "running gh api on ${1} to ${_joutput}" && 
+    _say "running gh api on ${1} to ${_joutput}" &&
     waitRateLimit "${_lowerLimit}" &&
     #
     # follow redirects
@@ -3494,7 +3552,7 @@ _run_scorecard()
   # shellcheck disable=2024,2086
   [ ! -s "${_joutput}" ] &&
     _prjurl="https://github.com/${1}" &&
-    _say "running scorecard LIVE on ${_prjurl} to ${_joutput}" && 
+    _say "running scorecard LIVE on ${_prjurl} to ${_joutput}" &&
     waitRateLimit "${_lowerLimit}" &&
     ${_sudo} docker run --rm ${_CAStoreDocker} \
       -e SCORECARD_V6=true \
@@ -3539,7 +3597,7 @@ _run_scorecard()
 #       errors seen to date include:
 #         Error failed to clone remote repository
 #         thread 'main' panicked at
-#       also .json files which are 0 bytes where txt 
+#       also .json files which are 0 bytes where txt
 #       have appeared to properly built
 # TODO: run hipcheck using docker volumes to set
 #       "approved/standard" config *.toml values
@@ -3562,8 +3620,8 @@ _run_hipcheck()
   # sudo redirect is fine here (SC2024)
   # _CAStoreDocker, __MITRHCquiet, _MITRHCrepoCmd, _MITRHCjson need to word split (SC2086)
   # shellcheck disable=2024,2086
-  [ ! -s "${_joutput}" ] && 
-    _say "running hipcheck on ${_prjurl} to ${_joutput}" && 
+  [ ! -s "${_joutput}" ] &&
+    _say "running hipcheck on ${_prjurl} to ${_joutput}" &&
     waitRateLimit "${_lowerLimit}" &&
     ${_sudo} docker run --rm ${_CAStoreDocker} \
       -v "${_MITRHCconfig}:/app/config" \
@@ -3588,10 +3646,10 @@ _run_hipcheck()
       ${_MITRHCquiet} \
       ${_MITRHCrepoCmd} "${_prjurl}" > "${_joutput}" &&
       ( # mangle the json output to include the rationale from txt file
-        head -n -2 "${_joutput}" ; 
-        b64=$(base64 -w 0 "${_toutput}") ; 
-        echo '  },'; 
-        echo -n '  "rationale": "' ; echo -n "${b64}"; 
+        head -n -2 "${_joutput}" ;
+        b64=$(base64 -w 0 "${_toutput}") ;
+        echo '  },';
+        echo -n '  "rationale": "' ; echo -n "${b64}";
         echo '"'; echo -n '}'
       ) > "${_joutput}.tmp" &&
       mv "${_joutput}.tmp" "${_joutput}" &&
@@ -3683,7 +3741,7 @@ _run_mychecks()
         # if unset don't try to count
         # false positive check
         # shellcheck disable=2102
-        [[ -v licenseChecks[restrictive] ]] && 
+        [[ -v licenseChecks[restrictive] ]] &&
           MYcheckScores["${check}"]=$(( $(echo "${licenseChecks[restrictive]}" | tr -cd , | wc -c) + 1))
         _r="$(_find_undetermined_licenses --all)"
         [[ -n "${_r}" ]] && licenseChecks[undetermined]="${_r}"
@@ -3719,8 +3777,8 @@ _count_licenses()
   _say -n "Counting licenses detected by GH API..."
   #
   # find all the GH API jsons which have license info
-  # and grab the SPDX ID, then using sort/uniq -c 
-  # echo back a count=license (sep'd by ':') of the 
+  # and grab the SPDX ID, then using sort/uniq -c
+  # echo back a count=license (sep'd by ':') of the
   # number if times specific SPDX IDs are encountered
   #
   _f="$(find . -name \*_ghapi.json -print0 | \
@@ -3930,7 +3988,7 @@ build_scorecards()
   [[ -n "${scoreTimeout}" ]] && {
     local _mytty;
     _mytty=$(tty);
-    echo "${$}" | __police_scorecards "${$}" "${scoreTimeout}" "${_mytty/\/dev\/}" & 
+    echo "${$}" | __police_scorecards "${$}" "${scoreTimeout}" "${_mytty/\/dev\/}" &
     __policePID=$! ;
 
     _warn "Policing for potentially stalled scoring containers on ${_mytty/\/dev\/} (see: -W to change)" ;
@@ -3985,7 +4043,7 @@ build_scorecards()
       _err="${_localdepdir}"/"$(basename "${_localdepdir}")".sc.json.err
       rm -f "${_err}"
       while :; do #{
-        _run_scorecard "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}" 
+        _run_scorecard "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}"
         if ! grep -q -E -o "(repo unreachable|exceeded a secondary rate limit|TLS handshake timeout)" "${_err}" 2>/dev/null ; then
           break
         fi
@@ -4010,7 +4068,7 @@ build_scorecards()
       rm -f "${_err}"
       _say -n "_"
       local _retry="true"
-      _run_hipcheck "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}" 
+      _run_hipcheck "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}"
       _retry="false"
   done #}
 
@@ -4049,7 +4107,7 @@ _val_scorecard()
   # the suggested rewrite of the grep -q would
   # make the test to hard to read
   # shellcheck disable=2143
-  [ -s "${_joutput}" ] && 
+  [ -s "${_joutput}" ] &&
     {
       [ "$(jq -r '.checks[]|[ .name,.score ] | @csv' "${_joutput}" | wc -l)" -lt 18 ] ||
       [ -n "$(jq -r '.checks[]|[ .name,.score ] | @csv' "${_joutput}" | grep -E -o "(,$)")" ];
@@ -4076,11 +4134,11 @@ _val_hipcheck()
     #_warn "hipcheck skipping validation on ${1}, del ${_joutput}.skip to undo" &&
     return
 
-  [ -s "${_joutput}" ] && 
+  [ -s "${_joutput}" ] &&
     {
-      [ "$(jq -r '.recommendation.kind' "${_joutput}")" == "null" ] || 
+      [ "$(jq -r '.recommendation.kind' "${_joutput}")" == "null" ] ||
       [ "$(jq -r '.rationale' "${_joutput}")" == "null" ];
-    } && 
+    } &&
     _warn "hipcheck ${_joutput} failed, consider rebuilding (-f)"
 
   return
@@ -4117,8 +4175,8 @@ validate_scorecards()
       _localdepdir="deps.d/$(mkdepdir "${_OwnerRepo}")"
       mkdir -p "${_localdepdir}"
 
-      _val_scorecard "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}" 
-      _val_hipcheck "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}" 
+      _val_scorecard "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}"
+      _val_hipcheck "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}"
 
     done #}
 
@@ -4138,7 +4196,7 @@ coalesce_scorecards()
 
   while :; do #{
       read -r _OwnerRepo
-    
+
       [ -z "${_OwnerRepo}" ] && break
 
       [ "${_OwnerRepo}" = "${__NULLGH__}" ] && continue
@@ -4160,7 +4218,7 @@ coalesce_scorecards()
       #
       # word splitting is necessary for sort to work properly
       # shellcheck disable=2046
-      ${coalesce_header} && 
+      ${coalesce_header} &&
         (
           echo -n "Component," &&
           echo -n $(jq -r '.checks[]|[ .name,.score ] | @csv' "${_SCinput}" | sort | cut -d, -f1 | sed 's/^"//g;s/"$/,/g') | sed 's/, /,/g;s/,$//g' && echo -n "," &&
@@ -4265,7 +4323,7 @@ build_caches()
         -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
         -H "Accept: application/vnd.github+json" "${__gh}" \
         -o "${__ghhtml}"
-    ) || 
+    ) ||
     (
       _fatal "gh html pre-cache failed."
     )
@@ -4299,7 +4357,7 @@ build_caches()
         -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
         -H "Accept: application/vnd.github+json" "${__ghr}" \
         -o "${__ghrjson}"
-    ) || 
+    ) ||
     (
       _fatal "gh-api pre-cache failed."
     )
@@ -4341,7 +4399,7 @@ build_caches()
              curl --silent \
                -H "Accept: application/vnd.github+json" \
                -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
-               "${__ghr}/contributors?per_page=100&page=${pg}" 
+               "${__ghr}/contributors?per_page=100&page=${pg}"
           done >> "${__ghrcontribjson}"
       ) ||
       (
@@ -4396,7 +4454,7 @@ build_caches()
     _warn "${__ghrsbomjson} over ${_cache_days}(s) days old, consider rebuilding (-f)"
 
   #########
-  # 
+  #
   [[ "${dependency_type}" == "${__SBOM__}" ]] && {
     # in lieu of _sbom_prj_cache as this SBOM is the only project for this component
     if [[ "${dependency_src^^}" == "${__GITHUB__}" ]]; then
@@ -4502,7 +4560,7 @@ _do_issues_reports()
   #       keys are not in the unique_by
   #
   # in prep for an HTML presentation, the json structs are
-  # converted to tables. the data in the table cells are 
+  # converted to tables. the data in the table cells are
   # filtered using jq's @html filter to create HTML entities
   # furthermore, the curated descriptions at phylum are
   # roughly converted from Markdown to HTML headers for
@@ -4697,7 +4755,7 @@ do_runtime_localizations()
   source "${_LOCAL_CRITERIA_DESC}"
 
   ORGLOOKUP_LABEL="${_LOCAL_ORG_TYPE_LOOKUP_LABEL:-logistics database D-U-N-S code}"
-  
+
   return 0;
 }
 
@@ -5412,7 +5470,7 @@ __main__()
     }
     _job="$(_phylum_jobId "${dependency_src}" "${__component_prds}")"
     [[ -n "${_job}" ]] && [[ "${__jobStatus}" == "complete" ]] && \
-      [[ "${dependency_src}_job_${_job/,*/}.json" -nt "${__component_prds}" ]] && { 
+      [[ "${dependency_src}_job_${_job/,*/}.json" -nt "${__component_prds}" ]] && {
         _say "Existing phylum analysis job is ${__jobStatus} but newer, rebuilding ${__component_prds}";
         component_dep_rebuild="true";
     }
@@ -5752,7 +5810,7 @@ while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
     D) scoreDepth="${OPTARG}"
        ! [[ ${scoreDepth} =~ ^[0-9]+$ ]] && \
          [[ ${scoreDepth} != "all" ]] && \
-         _fatal "expecting a positive integer for scoreDepth (${scoreDepth})" 
+         _fatal "expecting a positive integer for scoreDepth (${scoreDepth})"
        ;;
     L) do_reports="true" report_type="all" ;;
     G) gh_site="${OPTARG}"
@@ -5789,13 +5847,13 @@ while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
     U) puri="${OPTARG}"
        dependency_type="${__PHYLUM__}"
        dependency_src="${puri}"
-       _warn "-U deprecated, please start to use '-P ${puri}:phylum'"       
+       _warn "-U deprecated, please start to use '-P ${puri}:phylum'"
        ;;
     V) echo "Version: ${_version}" && _fatal "" ;;
     W) scoreTimeout="${OPTARG}"
        ! [[ ${scoreTimeout} =~ ^[0-9]+$ ]] && \
          [[ ${scoreTimeout,} != "default" ]] && \
-         _fatal "expecting a positive integer for scoreTimeout (${scoreTimeout})" 
+         _fatal "expecting a positive integer for scoreTimeout (${scoreTimeout})"
          [[ ${scoreTimeout,} == "default" ]] && scoreTimeout="${__TIMEOUT__}"
        ;;
     Z) _CAStoreVolume="${OPTARG}"
