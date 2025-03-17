@@ -1776,6 +1776,11 @@ _sbom_val()
   return
 }
 
+_sbom_pkgs()
+{
+  echo -n "$(cut -d, -f2 < "${1}" | cut -d: -f1 | sort | uniq -c | sort -nr | grep -vi -E '(http)'| sed 's/^[[:space:]]*\([[:digit:]]\)/\1/' | tr '\n' ','|sed 's/,$//;s/,/, /g')"
+}
+
 _day_last()
 {
   ${__ghSKIP} && echo "Unknown, project is not on GitHub" && return
@@ -2426,33 +2431,76 @@ _totalRuntime()
   return
 }
 
+# detect SBOM externalRefs referenceLocator (PACKAGE-MANAGER purl)
+# form is pkg:<eco>/<place>@<ver>
+#      _dep="$(_ph_sanitize_dep "${_c}")"
+_ph_sanitize_dep()
+{
+  local _dep
+
+  if [[ ${1} =~ ^pkg: ]]; then
+    # this order permits npm:@types... example pattern
+    _dep="$(cut -d@ -f1 <<< "${1/pkg:}" | cut -d/ -f2-)"
+    [[ ${_dep} =~ % ]] && _dep=$( urldecode "${_dep}" )
+  else
+    _dep=$(echo "${1}" | cut -d: -f2)
+  fi
+
+  echo "${_dep}"
+  return
+}
+
+#      _cmp="$(_ph_sanitize_cmp "${_c}")"
+_ph_sanitize_cmp()
+{
+  local _c
+  local _cmp
+  _c="${1}"
+
+  if [[ ${_c} =~ ^pkg: ]]; then
+    [[ ${_c} =~ % ]] && _c=$( urldecode "${_c}" )
+    # for the project csv, make _c look the same as legacy phylum (for now)
+    #   form is <eco>:<place>:<ver>
+    # shellcheck disable=2001
+    _cmp="$(sed 's^/^:^;s/@\([[:digit:]]\)/:v\1/' <<< "${_c/pkg:}" )"
+  else
+    _cmp="${_c}"
+  fi
+
+  echo "${_cmp}"
+  return
+}
+
 #
 # sanitize all github urls to only have :owner:/:repo:
 # pattern, no extra paths, no .git at the end or git+ at
 # beginning as such fail with GH API and tools that use it
 #
-_gh_sanitize_url()
+_gh_sanitize_url ()
 {
-  local _uriS
+  # quick out
+  [[ -z "${1}" ]] && echo "" && return;
 
-  [[ -z "${1}" ]] && echo "" && return
+  local _uriS;
+  # wack beginning upto github.com
+  _uriS="${1/*github.com/github.com}";
 
-  _uriS="${1}"
+  # if no github at the start - also a quick out echo back
+  ! [[ ${_uriS,,} =~ ^github.com ]] && echo "${1}" && return
+
+  # sense github.com: to be github.com/
+  _uriS="${_uriS/github.com:/github.com\/}"
 
   #
   # some of these results are old and still use http:
   # fix that here
   #
-  [[ ${_uriS,,} =~ ^http: ]] && _uriS="${_uriS/p\:/ps\:}"
+  [[ ${_uriS,,} =~ ^http: ]] && _uriS="${_uriS/p\:/ps\:}";
 
-  #
-  # other path mangle if URI is for github.com
-  #
-  { [[ ${_uriS,,} =~ ^https://github.com/ ]] && _uriS="$(cut -d/ -f1-5 <<<"${_uriS}")"; } ||
-  { [[ ${_uriS,,} =~ ^github.com/ ]]         && _uriS="$(cut -d/ -f1-3 <<<"${_uriS}")"; }
+  # now ready to cut down to github.com/:owner/:repo
+  [[ ${_uriS,,} =~ ^github.com/ ]] && _uriS="$(cut -d/ -f1-3 <<<"${_uriS}")"
 
-  _uriS="${_uriS/#git+}"
-  echo "${_uriS/%\.git/}"
+  echo "${_uriS/%\.git/}";
   return
 }
 
@@ -2464,32 +2512,29 @@ golang_scraper()
 
   _srch="${1/%@*}"
 
-  _say -n "golang scrapping repo for ${_srch} at ";
+  _say -n "golang scraping repo for ${_srch} at ";
 
   case "${_srch}" in
+    dario.cat/*)
+      _ret=$(curl -L --silent --request GET --url "${_srch}" -o -| grep content=\""${_srch}" | grep -o 'github.com/[a-zA-Z0-9]*/[a-zA-Z0-9]*')
+      ;;
     google.golang.org/*)
-      _say "a scrapping repo" "${_srch}"
       _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E -i -A 10 "(repository)" | grep -E -i  "([[:space:]]github)" | sed 's/^[[:space:]]*//g')
       ;;
     golang.org/*|go.opentelemetry.io/*|go.elastic.co/*|cloud.google.com/go/*|go.uber.org/*|gotest.tools/*|go.opencensus.io)
-      _say "b scrapping repo" "${_srch}"
       _hop=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E href= | cut -d\" -f2)
       _ret=$(curl -L --silent --request GET --url "${_hop}" -o - |grep -E -A 3 Repository |grep -E noopener | cut -d\" -f2)
       ;;
     go.mozilla.org/*)
-      _say "c scrapping repo" "${_srch}"
       _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E href= | grep source | cut -d\" -f2)
       ;;
     gopkg.in/*)
-      _say "d scrapping repo" "${_srch}"
       _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep btn | grep github | cut -d\" -f4)
       ;;
     gocloud.dev)
-      _say "e scrapping repo" "${_srch}"
       _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E "go-source" | cut -d\" -f4 | cut -d\  -f2)
       ;;
     github.com/*)
-      _say "f returning repo" "${_srch}"
       _ret="${_srch}"
       ;;
     *) _ret=""
@@ -2523,23 +2568,24 @@ npm_scraper()
 
   _srch="$(cut -d: -f1 <<<"${1}")"
 
-  _say "npm scrapping repo for ${_srch}"
+  _say -n "npm scraping repo for ${_srch}"
 
   #
+  # NB: the search API has a 64 byte limit on the search text
   # TODO: this is an optimistic search (size=1) is this
   #       too optimistic/narrow - as the json returned
   #       for npm matches are really fuzzy as I can tell
   #       --write-out "%{http_code}"
   #
   #_ret="$(curl --silent --location \
-  #  "https://registry.npmjs.com/-/v1/search?text=${_srch}&size=1" \
+  #  "https://registry.npmjs.com/-/v1/search?text=${_srch:0:64}&size=1" \
   #  | jq -r --arg srch "${_srch}" '
   #    .objects[]
   #      |.package.links
   #        |select (.npm |contains($srch))|.repository
   #  ')"
   curl --silent --location --write-out "%{http_code}" \
-    "https://registry.npmjs.com/-/v1/search?text=${_srch}&size=1" \
+    "https://registry.npmjs.com/-/v1/search?text=${_srch:0:64}&size=1" \
     -o /tmp/npmjs.out > /tmp/http_code.out
 
   _rc="${?}"
@@ -2549,7 +2595,7 @@ npm_scraper()
   # there is a 429 code rate limit with the file containing error code: 1015
   sleep "$(echo "$(shuf -i 700-1100 -n 1)" / 1000|bc -l)"
 
-  _say "npmjs: ${_rc} with ${_code}"
+  _say -n " ${_rc} with ${_code}"
   _ret="$(jq -r --arg srch "${_srch}" '
       .objects[]
         |.package.links
@@ -2580,7 +2626,7 @@ maven_scraper()
     | tr -d '\n' \
     )"
 
-  _say "maven scrapping repo for ${_srch}"
+  _say -n "maven scraping repo for ${_srch}"
 
   _ret="$(curl --silent --location \
     "https://repo1.maven.org/maven2/${_srch}" \
@@ -2613,7 +2659,7 @@ pypi_scraper()
 
   _srch="${1%:*}"
 
-  _say "pypi scrapping repo for ${_srch}";
+  _say -n "pypi scraping repo for ${_srch}";
 
   _ret="$(curl --silent --location \
     "https://pypi.org/pypi/${_srch}/json" -o - \
@@ -2817,6 +2863,7 @@ makePuri()
 # this digger works off primary dependencies
 # from a phylum analysized project
 #
+_subdepWarningLimit="false"
 _dig4subdep()
 {
   #
@@ -2824,6 +2871,9 @@ _dig4subdep()
   #
   local _lev
   local _c
+  local _dep
+  local _cmp
+  local _r
   local _ftoupdate
   local _dep
   local _depout
@@ -2850,7 +2900,15 @@ _dig4subdep()
   #
   [ "${_lev}" -eq 0 ] && _say "reached limit imposed at level ${_lev} returning..." && return
   # don't dig past dependencyDepth (-d)
-  [[ ${dependencyDepth} != "all" ]] && [[ "${_lev}" -ge ${dependencyDepth} ]] && _warn "dependency depth limit: found level ${_lev} skipping ${_c} returning..." && return
+  [[ ${dependencyDepth} != "all" ]] && [[ "${_lev}" -ge ${dependencyDepth} ]] &&
+    if "${_subdepWarningLimit}"; then
+      _say -n "${_lev}";
+      return;
+    else
+      _warn "dependency depth limit ${dependencyDepth}: found level ${_lev} skipping ${_c} returning...";
+      _subdepWarningLimit="true";
+      return;
+    fi;
   #
   # TODO: fix/understand npm dependencies, this algorithm seemingly
   #       goes on forever - just stick to two levels until this is
@@ -2904,8 +2962,6 @@ _dig4subdep()
   [[ ! "${_sbomsrc}" =~ github.com  ]] &&
     __xform_sbom_unsupported "${_c}" "${_sbomsrc}" "sbom API not supported" >"${_depout}_deps.json"
 
-#  && touch "${_depout}_deps.json.visited" && _say "-n" "x" && return
-
   [ ! -s "${_depout}_deps.json" ] &&
     _say -n "pulling ${_c} dependencies..." &&
     if ! "${_pullFN}" "${_pkg}" "${_depout}_deps.json" "${_sbomsrc}"; then
@@ -2934,7 +2990,20 @@ _dig4subdep()
   _r="$(jq -r '.repoUrl|select(.!=null)' "${_depout}_deps.json")"
   [[ -z "${_r}" ]] && _r="${__NOASSERTION__}"
   # if (! grep -q ${id} /etc/passwd) && (! grep ${id} /etc/group); then echo not there; fi
-  if ! grep -q --fixed-strings ",${_c}," "${_ftoupdate}"; then echo "${_lev},${_c},${_r},${_r},200" >> "${_ftoupdate}"; fi
+  _dep="$(_ph_sanitize_dep "${_c}")"
+  _cmp="$(_ph_sanitize_cmp "${_c}")"
+  #
+  # short cut to reduce calls to _dig4repo
+  # that is only _dig4repo if this pattern is NOT
+  # in the file about to be updated the repo is already
+  # known (from a # prior run). RISK if repo changed, this'll be wrong
+  #
+  _line="${5},${_cmp},${_dep},github.com/.*/.*,200"
+  ! grep -q -o -E "(^${_line}$)" "${_ftoupdate}" && {
+    _r=$(_dig4repo "${_cmp}");
+    _line="${_lev},${_cmp},${_dep},${_r},200" && _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]] && _fatal "corrupt line: ${_line}";
+    if ! grep -q --fixed-strings ",${_cmp}," "${_ftoupdate}"; then echo "${_line}" >> "${_ftoupdate}"; fi;
+  }
 
   jq -r '.dependencies[]|.id' "${_depout}_deps.json" 2>/dev/null | \
     sort | \
@@ -2949,9 +3018,10 @@ _dig4subdep()
       _l=$((_lev+1))
       #
       # record dependency (parent/child) relationship
+      # TODO: does _d really need to be _ph_sanitize_dep()
       #
       [[ ${_d} =~ % ]] && _d=$( urldecode "${_d}" )
-      echo "#s ${_dep}" >> "${__tmp_dep_graph}" && echo "\"${_c}\" -> \"${_d}\";" >> "${__tmp_dep_graph}";
+      echo "#s ${_d}" >> "${__tmp_dep_graph}" && echo "\"${_c}\" -> \"${_d}\";" >> "${__tmp_dep_graph}";
       _dig4subdep "${_l}" "${_d}" "${_ftoupdate}"
     done #}
 
@@ -3257,6 +3327,7 @@ _phylum_dep_components()
   local _apiMethod
   local _c
   local _r
+  local _dep
   local _cmp
 
   ${blockNetwork} && _warn "Offline mode, traversing component dependencies, skipped" && return 0
@@ -3266,7 +3337,7 @@ _phylum_dep_components()
   _say -n "checking ${1} project product dependency caches..."
 
   ${component_dep_rebuild} || ${force_rebuild} &&
-    _say -n "forced clearing of product dependency caches..." && rm -f "${3}"
+    ! "${_updatingFlag}" && _say -n "forced clearing of product dependency caches..." && rm -f "${3}"
 
   if [[ "${dependency_type}" == "${__SBOM__}" ]]; then
     _prjid=sbom
@@ -3281,7 +3352,7 @@ _phylum_dep_components()
     __phylum_deps "${_apiMethod}" "${_prjid}" "${1}" "${3}"
   fi
 
-  _say "resetting ${4}" && cp /dev/null "${4}" && cp /dev/null "${__tmp_dep_graph}" && component_subdep_rebuild="true";
+  ! "${_updatingFlag}" && _say "resetting ${4}" && cp /dev/null "${4}" && cp /dev/null "${__tmp_dep_graph}" && component_subdep_rebuild="true";
 
   _say "getting Phylum analysis job" && _phylum_jobStatus "${1}" "${3}" 1>/dev/null 2>&1;
 
@@ -3294,21 +3365,16 @@ _phylum_dep_components()
         break;
       fi
 
-      # detect SBOM externalRefs referenceLocator (PACKAGE-MANAGER purl)
-      # form is pkg:<eco>/<place>@<ver>
-      if [[ ${_c} =~ ^pkg: ]]; then
-        # this order permits npm:@types... example pattern
-        _dep="$(cut -d@ -f1 <<< "${_c/pkg:}" | cut -d/ -f2-)"
-        [[ ${_dep} =~ % ]] && _dep=$( urldecode "${_dep}" )
-        [[ ${_c} =~ % ]] && _c=$( urldecode "${_c}" )
-        # for the project csv, make _c look the same as legacy phylum (for now)
-        #   form is <eco>:<place>:<ver>
-        # shellcheck disable=2001
-        _cmp="$(sed 's^/^:^;s/@\([[:digit:]]\)/:v\1/' <<< "${_c/pkg:}" )"
-      else
-        _dep=$(echo "${_c}" | cut -d: -f2)
-        _cmp="${_c}"
-      fi
+      _dep="$(_ph_sanitize_dep "${_c}")"
+      _cmp="$(_ph_sanitize_cmp "${_c}")"
+      #
+      # short cut to reduce calls to _dig4repo
+      # that is if this pattern is in the file about
+      # to be updated the repo is already known (from a
+      # prior run). RISK if repo changed, this'll be wrong
+      #
+      _line="${5},${_cmp},${_dep},github.com/.*/.*,100"
+      grep -q -o -E "(^${_line}$)" "${4}" && _say -n "." && continue
 
       _repo=$(_dig4repo "${_cmp}")
       if [ "${_repo}" == "${__NOASSERTION__}" ] && [ -n "${_r/null/}" ]; then
@@ -3316,7 +3382,6 @@ _phylum_dep_components()
         _r=${_r//http:\/\//}
         _repo=$(_dig4repo "${_r}")
       fi
-
       #
       # make list of projects
       # 5   : 1,
@@ -3331,8 +3396,9 @@ _phylum_dep_components()
       # repo: github.com/flori/json,
       # code: 100
       #
-      ! grep --fixed-strings -s -q "${5},${_cmp},${_dep},${_repo},100" "${4}" && {
-        echo "${5},${_cmp},${_dep},${_repo},100" >> "${4}";
+        _line="${5},${_cmp},${_dep},${_repo},100" && _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]] && _fatal "corrupt line: ${_line}"
+      ! grep --fixed-strings -s -q "$_line" "${4}" && {
+        echo "$_line" >> "${4}";
         echo "# ${_dep}" >> "${__tmp_dep_graph}" && echo "\"${1}\" -> \"${_cmp}\";" >> "${__tmp_dep_graph}";
       }
 
@@ -3347,7 +3413,7 @@ _phylum_subdep_components()
   local _prjs=${2}
 
   (${force_rebuild} || ${component_subdep_rebuild} ) &&
-    _say -n "clearing subdep project dependency caches..." && find . \( -name \*visiting -o -name \*visited -o -name \*visited.err \) -delete
+    ! "${_updatingFlag}" && _say -n "clearing subdep project dependency caches..." && find . \( -name \*visiting -o -name \*visited -o -name \*visited.err \) -delete
 
   #
   # TODO: this is not done yet, this output file
@@ -5182,7 +5248,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_SBOM_ID}",
-   "value": "$(_sbom_val "${__ghrsbomjson}")",
+   "value": "$(_sbom_val "${__ghrsbomjson}")<p>Language package mangers detected: $(_sbom_pkgs "${__component_prjs}")",
    "label": "${_LOCAL_SBOM_LABEL}",
    "description": "${_LOCAL_SBOM_DESC}",
    "risk": "${_LOCAL_SBOM_RISK}"
@@ -5484,8 +5550,9 @@ __main__()
       _phylum_dep_components "${component}" "${__phy_prjs}" \
         "${__component_prds}" "${__component_prjs}" "${_level}" &&
       scorecard_rebuild="true" &&
-      component_subdep_rebuild="true" &&
-      echo 0,"${__gh}","${__gh}","${__gh}",000 >> "${__component_prjs}"
+      component_subdep_rebuild="true" && _line="0,${__gh},${__gh},${__gh},000" &&
+      ! grep -q -o -E "(^${_line}$)" "${__component_prjs}" &&
+          echo "${_line}" >> "${__component_prjs}";
 
   #
   # TODO: go n levels deep on dependencies
@@ -5660,6 +5727,7 @@ __main__()
 
 readonly _bldFlags="'all', or one or more of: cards,caches,deps,subdeps,meta,crit,scard,hcheck,scores,issues,job"
 readonly _indFlags="caches cards crit deps hcheck issues job meta scard scores subdeps"
+_updatingFlag="false"
 
 declare -A BFLAGS=( \
   [caches]="false" \
@@ -5790,7 +5858,7 @@ __logfil="${__NULLLOG__}"
 
 _cmdline="${0} ${*}"
 
-while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
+while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
   case $opt in
     c) _cache_days="${OPTARG}" ;;
     d) dependencyDepth="${OPTARG}"
@@ -5804,6 +5872,9 @@ while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
     o) BoEonly="true"; build_BoE="true" ;;
     p) protectNoUpdate="true" ;;
     q) quiet="true" ;;
+    u) _updatingFlag="true"
+       _warn "Updating flag (-u) is experimental at this point as old items are not purged"
+       ;;
     v) verbose="true" ;;
     B) build_BoE="true" ;;
     C) component="${OPTARG}" ;;
@@ -5873,6 +5944,7 @@ while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
   -o:  build only the BoE (i.e., do nothing else but that, and exit. see -B)
   -p:  protect, no automatic updates (useful for reproducibility)
   -q:  quiet (overrides verbose, warnings)
+  -u:  update modifier to force rebuild (preserves information where possible, e.g., deps, subdeps)
   -v:  verbose, not quiet
   -B:  build body of evidence (.tgz) suitable for archive storage
   -C:  set local component name/project name (REQUIRED)
