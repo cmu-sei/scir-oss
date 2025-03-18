@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
 #
 
-readonly _version="pubRel 250313a (branch: publicRelease)"
+readonly _version="pubRel 250317a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -129,8 +129,6 @@ mkdepdir()
 # https://stackoverflow.com/questions/6250698/how-to-decode-url-encoded-string-in-shell
 # TODO: there may be better answers in the post, explore better
 #
-#function urldecode() { :       "${*//+/ }"; echo -e  "${_//%/\\x}"; }
-#function urldecode() { local i="${*//+/ }"; echo -e  "${i//%/\\x}"; }
 function urldecode() { local i="${*//+/ }"; echo -ne "${i//%/\\x}"; }
 
 #
@@ -2504,6 +2502,29 @@ _gh_sanitize_url ()
   return
 }
 
+cargo_scraper()
+{
+  local _ret;
+  local _srch;
+
+  _srch="${1}"
+
+  _say -n "cargo scraping repo for ${_srch}";
+
+  _ret="$(curl --silent --location \
+    "https://crates.io/api/v1/crates?page=1&per_page=10&q=${_srch}" -o - \
+    | jq -r --arg srch "${_srch}" '
+      .crates[]
+      | select (.id == $srch)
+      | .repository
+    ')";
+
+  [ -z "${_ret}" ] && _ret="${__NOASSERTION__}";
+
+  _gh_sanitize_url "${_ret}";
+  return
+}
+
 golang_scraper()
 {
   local _hop
@@ -2661,6 +2682,11 @@ pypi_scraper()
 
   _say -n "pypi scraping repo for ${_srch}";
 
+  #
+  # TODO: check return codes, seen instances where
+  #       a srch resulted in nothing but then later
+  #       hits
+  #
   _ret="$(curl --silent --location \
     "https://pypi.org/pypi/${_srch}/json" -o - \
     | jq -r '
@@ -2998,11 +3024,12 @@ _dig4subdep()
   # in the file about to be updated the repo is already
   # known (from a # prior run). RISK if repo changed, this'll be wrong
   #
-  _line="${5},${_cmp},${_dep},github.com/.*/.*,200"
-  ! grep -q -o -E "(^${_line}$)" "${_ftoupdate}" && {
+  _line="${_lev},${_cmp},${_dep},github.com/.*/.*,200"
+  [[ ! ${_line} =~ ^1, ]] && ! grep -q -o -E "(^${_line}$)" "${_ftoupdate}" &&
+  {
     _r=$(_dig4repo "${_cmp}");
     _line="${_lev},${_cmp},${_dep},${_r},200" && _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]] && _fatal "corrupt line: ${_line}";
-    if ! grep -q --fixed-strings ",${_cmp}," "${_ftoupdate}"; then echo "${_line}" >> "${_ftoupdate}"; fi;
+    if ! grep -q --fixed-strings "${_line}" "${_ftoupdate}"; then echo "${_line}" >> "${_ftoupdate}"; fi;
   }
 
   jq -r '.dependencies[]|.id' "${_depout}_deps.json" 2>/dev/null | \
@@ -3370,7 +3397,7 @@ _phylum_dep_components()
       #
       # short cut to reduce calls to _dig4repo
       # that is if this pattern is in the file about
-      # to be updated the repo is already known (from a
+      # to be updated the github repo is already known (from a
       # prior run). RISK if repo changed, this'll be wrong
       #
       _line="${5},${_cmp},${_dep},github.com/.*/.*,100"
@@ -3413,7 +3440,7 @@ _phylum_subdep_components()
   local _prjs=${2}
 
   (${force_rebuild} || ${component_subdep_rebuild} ) &&
-    ! "${_updatingFlag}" && _say -n "clearing subdep project dependency caches..." && find . \( -name \*visiting -o -name \*visited -o -name \*visited.err \) -delete
+    _say -n "clearing subdep project dependency caches..." && find . \( -name \*visiting -o -name \*visited -o -name \*visited.err \) -delete
 
   #
   # TODO: this is not done yet, this output file
@@ -3447,7 +3474,6 @@ _phylum_subdep_components()
         _c="$(sed 's^/^:^;s/@\([[:digit:]]\)/:v\1/' <<< "${_c/pkg:}" )"
       fi
 
-      #_dig4subdep "${_level}" "${_c}" "${_prjs}".subs
       _dig4subdep "${_level}" "${_c}" "${_prjs}"
     done #}
 
@@ -4868,8 +4894,9 @@ check_runtime()
   #
   # the docker images
   #
-  if ! ${_sudo} docker image ls > /tmp/dimg.${$} 2>&1; then
-    _warn "docker: sudo required see /tmp/dimg.${$} for more details"
+  rm -f /tmp/scir-dimg.*
+  if ! ${_sudo} docker image ls > /tmp/scir-dimg.${$} 2>&1; then
+    _warn "docker: sudo required see /tmp/scir-dimg.${$} for more details"
     _sudo="sudo -E"
   fi
 
