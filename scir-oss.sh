@@ -2509,7 +2509,7 @@ cargo_scraper()
 
   _srch="${1}"
 
-  _say -n "cargo scraping repo for ${_srch}";
+  _say -n "${FUNCNAME[0]} for ${_srch}";
 
   _ret="$(curl --silent --location \
     "https://crates.io/api/v1/crates?page=1&per_page=10&q=${_srch}" -o - \
@@ -2533,7 +2533,7 @@ golang_scraper()
 
   _srch="${1/%@*}"
 
-  _say -n "golang scraping repo for ${_srch} at ";
+  _say -n "${FUNCNAME[0]} for ${_srch}";
 
   case "${_srch}" in
     dario.cat/*)
@@ -2586,6 +2586,8 @@ npm_scraper()
 {
   local _ret
   local _srch
+  local _htcode
+  local _jsonOut
 
   _srch="$(cut -d: -f1 <<<"${1}")"
 
@@ -2593,36 +2595,31 @@ npm_scraper()
 
   #
   # NB: the search API has a 64 byte limit on the search text
+  # NB: there is a 429 code rate limit with the file containing error code: 1015
   # TODO: this is an optimistic search (size=1) is this
   #       too optimistic/narrow - as the json returned
   #       for npm matches are really fuzzy as I can tell
-  #       --write-out "%{http_code}"
   #
-  #_ret="$(curl --silent --location \
-  #  "https://registry.npmjs.com/-/v1/search?text=${_srch:0:64}&size=1" \
-  #  | jq -r --arg srch "${_srch}" '
-  #    .objects[]
-  #      |.package.links
-  #        |select (.npm |contains($srch))|.repository
-  #  ')"
-  curl --silent --location --write-out "%{http_code}" \
-    "https://registry.npmjs.com/-/v1/search?text=${_srch:0:64}&size=1" \
-    -o /tmp/npmjs.out > /tmp/http_code.out
+  _jsonOut="$(mktemp -u)"
+  _localRetry=1
+  while [[ $_localRetry -lt 5 ]];
+  do
+    _htcode="$(curl --retry 1 --retry-all-errors --fail --silent --location \
+      --write-out "%{http_code}" \
+      "https://registry.npmjs.com/-/v1/search?text=${_srch:0:64}&size=1" \
+      -o "${_jsonOut}")"
+    { [[ -f "${_jsonOut}" ]] || [[ ${_htcode} != "429" ]]; } && break;
+    _localRetry=$(( _localRetry+1 ));
+    _say -n "${FUNCNAME[0]}: ${_rc} with ${_htcode}"
+  done
 
-  _rc="${?}"
-  read -r _code </tmp/http_code.out
-  #
-  # TODO: impl try try loop
-  # there is a 429 code rate limit with the file containing error code: 1015
-  sleep "$(echo "$(shuf -i 700-1100 -n 1)" / 1000|bc -l)"
-
-  _say -n " ${_rc} with ${_code}"
   _ret="$(jq -r --arg srch "${_srch}" '
       .objects[]
         |.package.links
           |select (.npm |contains($srch))|.repository
-    ' < /tmp/npmjs.out)"
+    ' "${_jsonOut}")"
 
+  rm -f "${_jsonOut}"
   [ -z "${_ret}" ] && _ret="${__NOASSERTION__}"
   _gh_sanitize_url "${_ret}"
   return
@@ -2647,7 +2644,7 @@ maven_scraper()
     | tr -d '\n' \
     )"
 
-  _say -n "maven scraping repo for ${_srch}"
+  _say -n "${FUNCNAME[0]} for ${_srch}";
 
   _ret="$(curl --silent --location \
     "https://repo1.maven.org/maven2/${_srch}" \
@@ -2680,7 +2677,7 @@ pypi_scraper()
 
   _srch="${1%:*}"
 
-  _say -n "pypi scraping repo for ${_srch}";
+  _say -n "${FUNCNAME[0]} for ${_srch}";
 
   #
   # TODO: check return codes, seen instances where
@@ -2931,7 +2928,7 @@ _dig4subdep()
       _say -n "${_lev}";
       return;
     else
-      _warn "dependency depth limit ${dependencyDepth}: found level ${_lev} skipping ${_c} returning...";
+      _warn "dependency depth limit '(-d ${dependencyDepth})': skipped deeper dependencies...";
       _subdepWarningLimit="true";
       return;
     fi;
@@ -3032,8 +3029,6 @@ _dig4subdep()
     if ! grep -q --fixed-strings "${_line}" "${_ftoupdate}"; then echo "${_line}" >> "${_ftoupdate}"; fi;
   }
 
-  jq -r '.dependencies[]|.id' "${_depout}_deps.json" 2>/dev/null | \
-    sort | \
     while :; do #{
       read -r _d
       if [ -z "${_d}" ]; then
@@ -3050,7 +3045,7 @@ _dig4subdep()
       [[ ${_d} =~ % ]] && _d=$( urldecode "${_d}" )
       echo "#s ${_d}" >> "${__tmp_dep_graph}" && echo "\"${_c}\" -> \"${_d}\";" >> "${__tmp_dep_graph}";
       _dig4subdep "${_l}" "${_d}" "${_ftoupdate}"
-    done #}
+    done < <(jq -r '.dependencies[]|.id' "${_depout}_deps.json" 2>/dev/null | sort) #}
 
   touch "${_depout}_deps.json.visited"
   rm -f "${_depout}_deps.json.visiting"
@@ -3383,7 +3378,6 @@ _phylum_dep_components()
 
   _say "getting Phylum analysis job" && _phylum_jobStatus "${1}" "${3}" 1>/dev/null 2>&1;
 
-  jq -r '.dependencies[]|.id,.repoUrl' "${3}" | \
     while :; do #{
       read -r _c
       read -r _r
@@ -3428,8 +3422,7 @@ _phylum_dep_components()
         echo "$_line" >> "${4}";
         echo "# ${_dep}" >> "${__tmp_dep_graph}" && echo "\"${1}\" -> \"${_cmp}\";" >> "${__tmp_dep_graph}";
       }
-
-    done #}
+    done < <(jq -r '.dependencies[]|.id,.repoUrl' "${3}") #}
 
   return
 }
@@ -3439,7 +3432,7 @@ _phylum_subdep_components()
   local _prds=${1}
   local _prjs=${2}
 
-  (${force_rebuild} || ${component_subdep_rebuild} ) &&
+  { ${force_rebuild} || ${component_subdep_rebuild}; }  &&
     _say -n "clearing subdep project dependency caches..." && find . \( -name \*visiting -o -name \*visited -o -name \*visited.err \) -delete
 
   #
@@ -3455,8 +3448,6 @@ _phylum_subdep_components()
   # for apache/hive, # which results in a bad read for this loop, hence the 'grep -v'
   # TODO: find a general way to clean these inputs from phylum
   #
-  jq -r '.dependencies[]|.id' "${_prds}" | grep -v -E '(^[[:space:]].*$|^$)' | \
-    sort | \
     while :; do #{
       read -r _c
       if [ -z "${_c}" ]; then
@@ -3475,7 +3466,9 @@ _phylum_subdep_components()
       fi
 
       _dig4subdep "${_level}" "${_c}" "${_prjs}"
-    done #}
+    done < <( \
+      jq -r '.dependencies[]|.id' "${_prds}" | grep -v -E '(^[[:space:]].*$|^$)' \
+      | sort) #}
 
   # TODO: to rebuild/pass over all previously
   #       (sub) dependencies found, need to
@@ -4086,14 +4079,7 @@ build_scorecards()
     _warn "Policing for potentially stalled scoring containers on ${_mytty/\/dev\/} (see: -W to change)" ;
   }
 
-  grep -E "${_seq}" "${2}" \
-    | cut -d, -f4 \
-    | grep github \
-    | sed  's^HTTPS://^^gi;s^\.git^^gi'  \
-    | cut -d/ -f2,3 \
-    | sort \
-    | uniq \
-    | while :; do #{
+    while :; do #{
       read -r _OwnerRepo
 
       [ -z "${_OwnerRepo}" ] && break
@@ -4162,7 +4148,13 @@ build_scorecards()
       local _retry="true"
       _run_hipcheck "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}"
       _retry="false"
-  done #}
+    done < <(grep -E "${_seq}" "${2}" \
+    | cut -d, -f4 \
+    | grep github \
+    | sed  's^HTTPS://^^gi;s^\.git^^gi'  \
+    | cut -d/ -f2,3 \
+    | sort \
+    | uniq) #}
 
   #
   # stop the policer if launched and still running and/or collect the zombie
@@ -4249,14 +4241,7 @@ validate_scorecards()
   _seq='^[0-9]+,'
   [[ ${2} != "all" ]] && _seq="^($(seq --separator='|' 0 "${2}")),"
 
-  grep -E "${_seq}" "${1}" \
-    | cut -d, -f4 \
-    | grep github\
-    | sed  's^HTTPS://^^gi;s^\.git^^gi' \
-    | cut -d/ -f2,3\
-    | sort \
-    | uniq \
-    | while :; do #{
+    while :; do #{
       read -r _OwnerRepo
 
       [ -z "${_OwnerRepo}" ] && break
@@ -4270,7 +4255,13 @@ validate_scorecards()
       _val_scorecard "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}"
       _val_hipcheck "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}"
 
-    done #}
+    done < <(grep -E "${_seq}" "${1}" \
+    | cut -d, -f4 \
+    | grep github\
+    | sed  's^HTTPS://^^gi;s^\.git^^gi' \
+    | cut -d/ -f2,3\
+    | sort \
+    | uniq) #}
 
   _say ""
   return
@@ -4340,7 +4331,10 @@ coalesce_scorecards()
         echo ""
       ) >> "${3}"
 
-  done < <(cut -d, -f4 "${2}" | grep github| sed  's^HTTPS://^^gi;s^\.git^^gi' | cut -d/ -f2,3| sort | uniq) #}
+  done < <( \
+    cut -d, -f4 "${2}" \
+    | grep github | sed  's^HTTPS://^^gi;s^\.git^^gi' | cut -d/ -f2,3 \
+    | sort | uniq) #}
 
   _say ""
   [ "${_missingJson}" -gt "0" ] && _warn "coalesce_scorecards: counted ${_missingJson} missing project scorecard(s)"
@@ -4535,7 +4529,7 @@ build_caches()
     )
   )
 
-  (! jq -r '.' "${__ghrsbomjson}" > /dev/null) || [ ! -f "${__ghrsbomjson}" ] || [ ! -s "${__ghrsbomjson}" ] &&
+  { ! jq -r '.' "${__ghrsbomjson}" > /dev/null || [ ! -f "${__ghrsbomjson}" ] || [ ! -s "${__ghrsbomjson}" ]; } &&
     _fatal "${__ghrsbomjson} is corrupt, missing or empty"
 
   if grep -q Bad\ credentials "${__ghrsbomjson}"; then _fatal "${__ghrsbomjson} bad GITHUB_AUTH_TOKEN credentials"; fi
@@ -4585,9 +4579,7 @@ consolidate_issues()
     # before the slurp below ensures there is an .issues[]
     # key in the event the key is not present in the json
     #
-    [[ "${__risk__}" == "licenseRisk" ]] && _liseq=0 && find . -name \*_ghapi.json -print0 | \
-      xargs -0 \
-      jq -r '.git_url,.license.spdx_id' | \
+    [[ "${__risk__}" == "licenseRisk" ]] && _liseq=0 && \
       while read -r __grepo; read -r __lic
       do
         ((_liseq++));
@@ -4616,8 +4608,9 @@ consolidate_issues()
     "riskType": "licenseRisk"
   }
 _MYLICEOF
-      done | \
-        jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
+      done < <(find . -name \*_ghapi.json -print0 | \
+        xargs -0 jq -r '.git_url,.license.spdx_id' ) \
+      | jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
     # jq's arg _risk in quotes is NOT to be a shell expansion
     # false positive https://github.com/koalaman/shellcheck/issues/1160
     #
@@ -5632,8 +5625,8 @@ __main__()
         _say "Detected updated/new scores" && newScores=true
 
   ${BFLAGS[scores]} && newScores=true
-  (${newScores} || ${force_rebuild} ||
-    [ ! -d deps.d/ ] || [ ! -s "${component}_coalesce.csv" ]) &&
+  { ${newScores} || ${force_rebuild} ||
+    [ ! -d deps.d/ ] || [ ! -s "${component}_coalesce.csv" ]; } &&
       _say "validating scorecards for ${component} dependencies..." &&
       validate_scorecards "${__component_prjs}" "${scoreDepth}"
 
@@ -5643,8 +5636,8 @@ __main__()
   #       to the coalesced scores file
   #
   coalesce_header="true"
-  (${newScores} || ${force_rebuild} ||
-    [ ! -s "${component}_coalesce.csv" ]) &&
+  { ${newScores} || ${force_rebuild} ||
+    [ ! -s "${component}_coalesce.csv" ]; } &&
       _say "coalescing scores for ${component}..." &&
       coalesce_scorecards "${component}" "${__component_prjs}" "${component}_coalesce.csv"
 
@@ -5672,12 +5665,8 @@ __main__()
       _say "consolidating issues for ${component}..." &&
       consolidate_issues "all" "${component}" "${component}_allIssues.json"
 
-  #
-  # TODO: only build html issue report if older
-  #       than the json structure it depends on
-  #
-  (true || "${do_reports}" ||
-    [ ! -s "${component}_vulmalrep.html" ]) &&
+  { [[ "${component}_allIssues.json" -nt "${component}_vulmalrep.html" ]] || "${do_reports}" ||
+    [ ! -s "${component}_vulmalrep.html" ]; } &&
       _say "building issues report for ${component}..." &&
       _do_issues_reports "${report_type}" "${component}" "${component}_allIssues.json" "${component}_vulmalrep.html"
 
@@ -5931,6 +5920,9 @@ while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
            if [[ "${dependency_src^^}" = "${__GITHUB__}" ]]; then
              # at this point not sure of the actual SBOM to be pulled from GHAPI
              dependency_type="${__SBOM__}"
+           else
+             [[ ! -f "${dependency_src}" ]] && \
+               _fatal "expecting SBOM specification at $(realpath "${dependency_src}") or ${component}/${dependency_src}"
            fi
            ;;
          phylum)

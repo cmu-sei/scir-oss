@@ -472,7 +472,7 @@ tar (GNU tar) 1.30
 ```
 bash (version >= 5.0)
 jq-1.6
-curl 7.68.0
+curl 7.68.0 (must be higher than 7.67.0 to support 429 retry code)
 ```
 
 ### docker images
