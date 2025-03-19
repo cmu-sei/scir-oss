@@ -2497,9 +2497,25 @@ _gh_sanitize_url ()
 
   # now ready to cut down to github.com/:owner/:repo
   [[ ${_uriS,,} =~ ^github.com/ ]] && _uriS="$(cut -d/ -f1-3 <<<"${_uriS}")"
+  _uriS="${_uriS/%\.git/}"
 
-  echo "${_uriS/%\.git/}";
+  grep -o -E '(github.com/[_a-zA-Z0-9-]+/[_a-zA-Z0-9-]+)' <<<"${_uriS}";
   return
+}
+
+gem_scraper ()
+{
+    local _ret;
+    local _srch;
+    _srch="${1}"
+    _say "gem scrapping repo for ${_srch}";
+
+    [[ ${_srch} =~ :v[[:digit:]] ]] &&
+      _ret="$(curl --silent --location https://rubygems.org/api/v2/rubygems/"${_srch/%:v*}"/versions/"${_srch/#*:v}".json | jq -r 'if (.source_code_uri) then (.source_code_uri) else (.homepage_uri) end' 2>/dev/null)";
+
+    { [[ "${_ret,,}" = "null" ]] || [ -z "${_ret}" ]; } && _ret="unknown";
+    _gh_sanitize_url "${_ret}";
+    return
 }
 
 cargo_scraper()
@@ -2509,7 +2525,7 @@ cargo_scraper()
 
   _srch="${1}"
 
-  _say -n "${FUNCNAME[0]} for ${_srch}";
+  _say -n " ${FUNCNAME[0]} for ${_srch}";
 
   _ret="$(curl --silent --location \
     "https://crates.io/api/v1/crates?page=1&per_page=10&q=${_srch}" -o - \
@@ -2533,7 +2549,7 @@ golang_scraper()
 
   _srch="${1/%@*}"
 
-  _say -n "${FUNCNAME[0]} for ${_srch}";
+  _say -n " ${FUNCNAME[0]} for ${_srch}";
 
   case "${_srch}" in
     dario.cat/*)
@@ -2588,10 +2604,11 @@ npm_scraper()
   local _srch
   local _htcode
   local _jsonOut
+  local _localRetry
 
   _srch="$(cut -d: -f1 <<<"${1}")"
 
-  _say -n "npm scraping repo for ${_srch}"
+  _say -n " ${FUNCNAME[0]} repo for ${_srch}"
 
   #
   # NB: the search API has a 64 byte limit on the search text
@@ -2610,7 +2627,7 @@ npm_scraper()
       -o "${_jsonOut}")"
     { [[ -f "${_jsonOut}" ]] || [[ ${_htcode} != "429" ]]; } && break;
     _localRetry=$(( _localRetry+1 ));
-    _say -n "${FUNCNAME[0]}: ${_rc} with ${_htcode}"
+    _say -n " ${FUNCNAME[0]}: ${_rc} with ${_htcode}"
   done
 
   _ret="$(jq -r --arg srch "${_srch}" '
@@ -2644,7 +2661,7 @@ maven_scraper()
     | tr -d '\n' \
     )"
 
-  _say -n "${FUNCNAME[0]} for ${_srch}";
+  _say -n " ${FUNCNAME[0]} for ${_srch}";
 
   _ret="$(curl --silent --location \
     "https://repo1.maven.org/maven2/${_srch}" \
@@ -2677,7 +2694,7 @@ pypi_scraper()
 
   _srch="${1%:*}"
 
-  _say -n "${FUNCNAME[0]} for ${_srch}";
+  _say -n " ${FUNCNAME[0]} for ${_srch}";
 
   #
   # TODO: check return codes, seen instances where
@@ -2980,8 +2997,11 @@ _dig4subdep()
   _pullFN=pull_ghSBOM && [[ "${dependency_type}" == "${__PHYLUM__}" ]] && _pullFN=pull_phyPackage
   #
   # here for SBOM's shortcut the lookup which for non-github srcs will fail
+  # TODO: for now the same _c can be id'd as being a dependency in many depths
+  #       this grep could results in multiple lines coming back, for for now
+  #       only search for relevent github.com hits and ensure only one - not the best
   #
-  _sbomsrc=$(grep --fixed-strings ",${_c}," "${_ftoupdate}" |cut -d, -f4)
+  _sbomsrc="$(grep --fixed-strings ",${_c}," "${_ftoupdate}" | cut -d, -f4 | grep github.com/ | uniq | head -1)"
   [[ ! "${_sbomsrc}" =~ github.com  ]] &&
     __xform_sbom_unsupported "${_c}" "${_sbomsrc}" "sbom API not supported" >"${_depout}_deps.json"
 
