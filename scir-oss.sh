@@ -2477,7 +2477,7 @@ _ph_sanitize_cmp()
 _gh_sanitize_url ()
 {
   # quick out
-  [[ -z "${1}" ]] && echo "" && return;
+  { [[ -z "${1}" ]] || [[ "${1,,}" == "unknown" ]] || [[ "${1,,}" == "null" ]]; } && echo "unknown" && return;
 
   local _uriS;
   # wack beginning upto github.com
@@ -2645,30 +2645,81 @@ npm_scraper()
 #
 # dep is: 'maven:com.amazonaws:aws-java-sdk-core:1.11.571'
 # passed is: 'com.amazonaws:aws-java-sdk-core:1.11.571'
+# OR
+# passed is: 'com.amazonaws/aws-java-sdk-core:1.11.571'
 # we need:    ^^^^^^^^^^^^^ ^^^^^^^^^^^^^^^^^ ^^^^^^^^
 # becomes:    com/amazonaws/aws-java-sdk-core/1.11.571/aws-java-sdk-core-1.11.571.pom
 #
 maven_scraper()
 {
+  local _rc
   local _ret
   local _srch
+  local _dom
+  local _art
+  local _ver
 
-  _srch="$( \
-    { cut -d: -f1 <<<"${1}" | sed 's/\./\//g;s/$/\//'; \
-      cut --output-delimiter=/ -d: -f2,3 <<<"${1}"; \
-      echo -n /; cut --output-delimiter=- -d: -f2,3 <<<"${1}"; \
-      echo -n ".pom"; } \
-    | tr -d '\n' \
-    )"
+  #eval "$(sed 's/\([[:print:]].*\)[:\/]\([[:print:]].*\)[:@]*[v]*\(.*\)/_ver=\3;_art=\2;_dom=\1/g' <<<"${1}")"
+  eval "$(sed -E 's/^([^:\/?\n]+)[:\/]([^:@?\n]+)[:@]*v*(.*)/_dom=\1;_art=\2;_ver=\3;/mg' <<<"${1}")"
 
-  _say -n " ${FUNCNAME[0]} for ${_srch}";
+  { [[ -z "${_ver}" ]] && [[ -z "${_art}" ]] && [[ -z "${_dom}" ]] && _say "${FUNCNAME[0]} for '${1}': malformed" && echo "unknown" && return; } || _say "version: '${_ver}' article: '${_art}' domain: '${_dom}'"
 
-  _ret="$(curl --silent --location \
-    "https://repo1.maven.org/maven2/${_srch}" \
-    | grep -B 10 -E '(</scm>)' \
-    | grep -E '(<url>)' \
-    | grep github \
-    )"
+   #
+   # try for the .pom file first
+   # TODO: there are some strange version numbers out there
+   #       on thing to do is to mangle the version number 
+   #       pattern to try another .pom version - likely ugghh
+   #       another thing is to search on the artifact like
+   #       npm and select/drill from there.
+   #       using central artifact search is kinda a shortcut
+   #
+  _loc="repo1.maven.org/maven2"
+  _srch="${_dom//\./\/}/${_art}/${_ver}/${_art}-${_ver}.pom"
+
+  _jsonOut="$(mktemp -u)"
+  _localRetry=1
+  _htcode=
+  while [[ $_localRetry -lt 3 ]];
+  do
+    { [[ -z "${_htcode}" ]] && _say -n " ${FUNCNAME[0]}: trying ${_loc} for ${_srch}"; } || _say -n " ${FUNCNAME[0]}: ${_rc} with ${_htcode} now trying ${_loc} for ${_srch}"
+
+    _htcode="$(curl --retry 1 --retry-all-errors --fail --silent --location \
+      --write-out "%{http_code}" \
+      "https://${_loc}/${_srch}" \
+      -o "${_jsonOut}" \
+      )"
+
+    _rc="${?}"
+
+    [[ ! -f "${_jsonOut}" ]] && cp /dev/null "${_jsonOut}"
+
+    case "${_loc}" in
+      repo1.maven.org/maven2)
+        _ret="$(grep -B 10 -E '(</scm>)' "${_jsonOut}" | grep -E '(<url>)' | grep github)"
+        ;;
+      central.sonatype.com/artifact)
+        _ret="$(grep -o 'github.com/[^:"/]*/[^:"/]*' "${_jsonOut}" | sort | uniq )"
+        ;;
+      *)
+        ;;
+    esac
+
+    #
+    # likely github hit - we are done
+    #
+    [[ -n "${_ret}" ]] && [[ "${_htcode}" == "200" ]] && break
+
+    #
+    # second try as the prev curl may have 404'ed
+    # or the .pom may not have referenced github
+    # this second try appears to be more time costly
+    #
+    _localRetry=$(( _localRetry+1 ));
+    _srch="${_dom}/${_art}"
+    _loc="central.sonatype.com/artifact"
+  done
+
+  rm -f "${_jsonOut}"
 
   [ -z "${_ret}" ] && _ret="${__NOASSERTION__}"
   _ret="${_ret/#*<url>}"
@@ -3267,18 +3318,15 @@ __phylum_deps()
 
   [ ! -f "${_file}" ] &&
     _say -n "building Phylum project product dependencies caches..." &&
-    (
-      (
+      {
         curl --silent --request GET \
           --url "https://api.phylum.io/api/v0/data/${_apiMethod}/${_prjid}" \
           --header 'accept: application/json' \
           --header "authorization: Bearer $(phylum auth token --bearer)" \
-          -o "${_file}"
-      ) ||
-      (
-        _fatal "phylum-api project product dependency pre-cache failed."
-      )
-    )
+          -o "${_file}" \
+        ||
+        _fatal "phylum-api project product dependency pre-cache failed.";
+      };
 
   [ ! -f "${_file}" ] || [ ! -s "${_file}" ] &&
     _fatal "${_file} is missing or empty"
@@ -3734,14 +3782,14 @@ _run_hipcheck()
       -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
       ${_MITRHCquiet} \
       ${_MITRHCrepoCmd} "${_prjurl}" > "${_toutput}" 2>&1 &&
-      (
+      {
         grep -E risk\ rated "${_toutput}" >/dev/null ||
-        (
+        {
           _warn "hipcheck ${_toutput} failed, see file for hints" &&
           _debug "RETURNING FROM HERE" &&
           return
-        )
-      ) &&
+        }
+      } &&
     waitRateLimit "${_lowerLimit}" &&
     ${_sudo} docker run --rm ${_CAStoreDocker} \
       -v "${_MITRHCconfig}:/app/config" \
@@ -3750,13 +3798,13 @@ _run_hipcheck()
       ${_MITRHCjson} \
       ${_MITRHCquiet} \
       ${_MITRHCrepoCmd} "${_prjurl}" > "${_joutput}" &&
-      ( # mangle the json output to include the rationale from txt file
+      { # mangle the json output to include the rationale from txt file
         head -n -2 "${_joutput}" ;
         b64=$(base64 -w 0 "${_toutput}") ;
         echo '  },';
         echo -n '  "rationale": "' ; echo -n "${b64}";
         echo '"'; echo -n '}'
-      ) > "${_joutput}.tmp" &&
+      } > "${_joutput}.tmp" &&
       mv "${_joutput}.tmp" "${_joutput}" &&
       if jq -r '.' "${_joutput}" > /dev/null 2>&1; then rm "${_toutput}"; fi &&
       [ -s "${_toutput}" ] && _warn "json filter error, ${_toutput} not deleted"
@@ -4322,12 +4370,12 @@ coalesce_scorecards()
       # word splitting is necessary for sort to work properly
       # shellcheck disable=2046
       ${coalesce_header} &&
-        (
+        {
           echo -n "Component," &&
           echo -n $(jq -r '.checks[]|[ .name,.score ] | @csv' "${_SCinput}" | sort | cut -d, -f1 | sed 's/^"//g;s/"$/,/g') | sed 's/, /,/g;s/,$//g' && echo -n "," &&
           echo -n $( (jq -r '.passing[]| [.analysis,.value ]|@csv' "${_HCinput}"; jq -r '.failing[]| [.analysis,.value ]|@csv' "${_HCinput}";  jq -r '.errored[]| [.analysis,"-1"]|@csv' "${_HCinput}") | sort | cut -d, -f1 | sed 's/^"//g;s/"$/,/g' | sed 's/, /,/g;s/,$//g') | sed 's/ /,/g' &&
           echo ""
-        ) > "${3}" &&
+        } > "${3}" &&
         coalesce_header="false"
 
       # CSV row (the values)
@@ -4339,7 +4387,7 @@ coalesce_scorecards()
       #
       # word splitting is necessary for sort to work properly
       # shellcheck disable=2046
-      (
+      {
         echo -n "$(basename "${_localdepdir}"),"
         echo -n $(jq -r '.checks[]|[ .name,.score ] | @csv' "${_SCinput}" | sort | cut -d, -f2 | sed 's/^"//g;s/"$/,/g') | sed 's/ /,/g;s/,$//g'
         echo -n ","
@@ -4349,7 +4397,7 @@ coalesce_scorecards()
           echo -n "-1,-1,-1,-1,-1,-1,-1,-1,-1"
         fi
         echo ""
-      ) >> "${3}"
+       } >> "${3}"
 
   done < <( \
     cut -d, -f4 "${2}" \
@@ -4378,18 +4426,15 @@ _phy_prj_cache()
   #
   [ ! -f "${__phy_prjs}" ] &&
     _say -n "building Phylum project caches..." &&
-    (
-      (
+      {
         curl --silent --request GET \
           --url 'https://api.phylum.io/api/v0/projects/?paginate.limit=100' \
           --header 'accept: application/json' \
           --header "authorization: Bearer $(phylum auth token --bearer)" \
-          -o "${__phy_prjs}"
-      ) ||
-      (
-        _fatal "phylum-api project pre-cache failed."
-      )
-    )
+          -o "${__phy_prjs}" \
+      ||
+        _fatal "phylum-api project pre-cache failed.";
+      };
 
   [ ! -f "${__phy_prjs}" ] || [ ! -s "${__phy_prjs}" ] &&
     _fatal "${__phy_prjs} is missing or empty"
@@ -4423,17 +4468,14 @@ build_caches()
   ${__ghSKIP} && echo "<html></html>" > "${__ghhtml}"
 
   [ ! -f "${__ghhtml}" ] && _say -n "building GH html..." &&
-  (
-    (
+    {
       curl --silent \
         -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
         -H "Accept: application/vnd.github+json" "${__gh}" \
-        -o "${__ghhtml}"
-    ) ||
-    (
-      _fatal "gh html pre-cache failed."
-    )
-  )
+        -o "${__ghhtml}" \
+    ||
+      _fatal "gh html pre-cache failed.";
+    };
 
   [ ! -f "${__ghhtml}" ] || [ ! -s "${__ghhtml}" ] &&
     _fatal "${__ghhtml} is missing or empty"
@@ -4457,17 +4499,14 @@ build_caches()
   ${__ghSKIP} && echo "{ }" > "${__ghrjson}"
 
   [ ! -f "${__ghrjson}" ] && _say -n "building GH caches..." &&
-  (
-    (
+    {
       curl --silent \
         -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
         -H "Accept: application/vnd.github+json" "${__ghr}" \
-        -o "${__ghrjson}"
-    ) ||
-    (
-      _fatal "gh-api pre-cache failed."
-    )
-  )
+        -o "${__ghrjson}" \
+    ||
+      _fatal "gh-api pre-cache failed.";
+    };
 
   [ ! -f "${__ghrjson}" ] || [ ! -s "${__ghrjson}" ] &&
     _fatal "${__ghrjson} is missing or empty"
@@ -4493,8 +4532,7 @@ build_caches()
 
   [ ! -f "${__ghrcontribjson}" ] &&
     _say -n "building GH contributor caches..." &&
-    (
-      (
+      {
         cp /dev/null "${__ghrcontribjson}"
         #
         # 500 contrib counter limit
@@ -4506,12 +4544,10 @@ build_caches()
                -H "Accept: application/vnd.github+json" \
                -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
                "${__ghr}/contributors?per_page=100&page=${pg}"
-          done >> "${__ghrcontribjson}"
-      ) ||
-      (
-       _fatal "gh-api contrib pre-cache failed."
-      )
-    )
+          done >> "${__ghrcontribjson}" \
+       ||
+       _fatal "gh-api contrib pre-cache failed.";
+      };
 
   [ ! -f "${__ghrcontribjson}" ] &&
     _fatal "${__ghrcontribjson} is missing or empty"
@@ -4535,19 +4571,16 @@ build_caches()
   ${__ghSKIP} && echo "{ }" > "${__ghrsbomjson}"
 
   [ ! -f "${__ghrsbomjson}" ] && _say -n "building GH SBOM caches..." &&
-  (
-    (
+    {
       curl --location --silent --write-out "%{http_code}" \
         -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
         -H "Accept: application/vnd.github+json" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
         "${__ghr}/dependency-graph/sbom" \
-        -o "${__ghrsbomjson}"
-    ) ||
-    (
-      _fatal "gh-api SBOM pre-cache failed ${?}."
-    )
-  )
+        -o "${__ghrsbomjson}" \
+     ||
+      _fatal "gh-api SBOM pre-cache failed ${?}.";
+    };
 
   { ! jq -r '.' "${__ghrsbomjson}" > /dev/null || [ ! -f "${__ghrsbomjson}" ] || [ ! -s "${__ghrsbomjson}" ]; } &&
     _fatal "${__ghrsbomjson} is corrupt, missing or empty"
@@ -5288,7 +5321,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_SBOM_ID}",
-   "value": "$(_sbom_val "${__ghrsbomjson}")<p>Language package mangers detected: $(_sbom_pkgs "${__component_prjs}")",
+   "value": "$(_sbom_val "${__ghrsbomjson}")<br/>Language package mangers detected: $(_sbom_pkgs "${__component_prjs}")",
    "label": "${_LOCAL_SBOM_LABEL}",
    "description": "${_LOCAL_SBOM_DESC}",
    "risk": "${_LOCAL_SBOM_RISK}"
