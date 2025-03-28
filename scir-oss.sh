@@ -44,6 +44,7 @@ _OSSSCIRsettings="/vagrant/scir-oss/settings"
 _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
 _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
 _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
+_OSSSCIRrepoResolveDB="${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv"
 _CAStoreVolume=
 _CAStoreDocker=
 
@@ -70,7 +71,7 @@ _cleanup_and_exit()
   rm -f "${__RATELIMIT__}"
   #
   # shellcheck disable=2164
-  ! dirs -v |tail -1 | grep -q '^ 0' && popd >&"${_fdwarn}"
+  ! dirs -v |tail -1 | grep -q '^ 0' && popd >&"${_fdverbose}"
   exit "${1}"
 }
 
@@ -87,7 +88,15 @@ _info()
 
 _warn()
 {
-  _HTMLcaveats+=("W: ${*}<br/>")
+  local _cav
+  _cav="true"
+
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --q ]] && _cav="false"
+    shift 1
+  done
+  "${_cav}" && _HTMLcaveats+=("W: ${*}<br/>")
   echo WARNING: "${*}" | ${__logger} >&"${_fdwarn}" && return
 }
 
@@ -103,6 +112,7 @@ _err()
 
 _fatal()
 {
+  _HTMLcaveats+=("F: ${*}<br/>")
   [ -n "${*}" ] && echo FATAL: "${*}" | ${__logger} >&"${_fderr}"
   _cleanup_and_exit 1
 }
@@ -1621,6 +1631,8 @@ _summary_scores()
   hcmsg="<a href='https://github.com/mitre/hipcheck/blob/main/docs/book/src/using/analyses.md'>MITRE Hipcheck</a>: (score &le; threshold) ${_HCrationale}<br/>(composed of "
   for check in "${!HCcheckScores[@]}"
   do
+    # need to wordsplit after "auto" on the HCcheckScores
+    # shellcheck disable=2086
     hcmsg="${hcmsg}${HCcheckLabels["${check}"]} ($(_fotp "${HCcheckScores["${check}"]}" "${HCcheckThresholds["${check}"]}" gt)$(_fppp "auto" ${HCcheckScores["${check}"]})/${HCcheckThresholds["${check}"]}), "
   done
   hcmsg="${hcmsg/%, /})"
@@ -2429,38 +2441,32 @@ _totalRuntime()
   return
 }
 
-# detect SBOM externalRefs referenceLocator (PACKAGE-MANAGER purl)
-# form is pkg:<eco>/<place>@<ver>
-#      _dep="$(_ph_sanitize_dep "${_c}")"
-_ph_sanitize_dep()
-{
-  local _dep
-
-  if [[ ${1} =~ ^pkg: ]]; then
-    # this order permits npm:@types... example pattern
-    _dep="$(cut -d@ -f1 <<< "${1/pkg:}" | cut -d/ -f2-)"
-    [[ ${_dep} =~ % ]] && _dep=$( urldecode "${_dep}" )
-  else
-    _dep=$(echo "${1}" | cut -d: -f2)
-  fi
-
-  echo "${_dep}"
-  return
-}
-
+#
+# partially follows rules at https://github.com/package-url/purl-spec/blob/main/PURL-SPECIFICATION.rst
 #      _cmp="$(_ph_sanitize_cmp "${_c}")"
 _ph_sanitize_cmp()
 {
   local _c
   local _cmp
+  local _cmpgrps
   _c="${1}"
 
-  if [[ ${_c} =~ ^pkg: ]]; then
-    [[ ${_c} =~ % ]] && _c=$( urldecode "${_c}" )
+  if [[ "${_c}" =~ ^pkg: ]]; then
+    # here _c is reduced (on input) to wack any qualifiers or subpaths in the pkg url
+    # false positive check, don't want shell expansion
+    # shellcheck disable=2016
+    _cmpgrps="$(sed -E 's$^pkg:/*([a-zA-Z0-9.+-]+)/([_a-zA-Z0-9.+-/%]+)([@#\?])*(.*)$_typeg1=\1;_nameg2=\2;_vqsg3=\3;_vqs_valg4=\4;$g' <<<"${_c/%[?#]*/}")"
+
+    # if sed did not match, sed gives back input and here simply give back without touching the invalid purl
+    [[ "${_cmpgrps}" == "${_c/%[?#]*/}" ]] && _warn "${_cmpgrps}: invalid purl" && echo "${_c}" && return
+
+    eval "${_cmpgrps}"
     # for the project csv, make _c look the same as legacy phylum (for now)
-    #   form is <eco>:<place>:<ver>
-    # shellcheck disable=2001
-    _cmp="$(sed 's^/^:^;s/@\([[:digit:]]\)/:v\1/' <<< "${_c/pkg:}" )"
+    #   form is <type>:<name>:<ver>
+    # false positive check, vars are indirectly assigned in a successful match in the sed above
+    # shellcheck disable=2154
+    _cmp="${_typeg1}:${_nameg2}:${_vqs_valg4}"
+    [[ ${_cmp} =~ % ]] && _cmp=$( urldecode "${_cmp}" )
   else
     _cmp="${_c}"
   fi
@@ -2481,6 +2487,10 @@ _gh_sanitize_url ()
 
   local _uriS;
   # wack beginning upto github.com
+  # side effect here is that multiple github.com in the same var
+  # will end up as one - the last one in the list
+  # TODO: smarter file and blacklists like
+  #       github.com/sponsors/<:owner> is a valid url
   _uriS="${1/*github.com/github.com}";
 
   # if no github at the start - also a quick out echo back
@@ -2503,19 +2513,31 @@ _gh_sanitize_url ()
   return
 }
 
-gem_scraper ()
+# see https://guides.rubygems.org/rubygems-org-api/ and
+#     https://guides.rubygems.org/rubygems-org-api-v2/
+gem_scraper()
 {
-    local _ret;
-    local _srch;
-    _srch="${1}"
-    _say "gem scrapping repo for ${_srch}";
+  local _ret;
+  local _srch;
+  _srch="${1}"
+  _say -n " ${FUNCNAME[0]} for ${_srch}";
 
-    [[ ${_srch} =~ :v[[:digit:]] ]] &&
-      _ret="$(curl --silent --location https://rubygems.org/api/v2/rubygems/"${_srch/%:v*}"/versions/"${_srch/#*:v}".json | jq -r 'if (.source_code_uri) then (.source_code_uri) else (.homepage_uri) end' 2>/dev/null)";
+  _ret=""
+  #
+  # try v2 api which includes the version number
+  #
+  { [[ ${_srch} =~ :v[[:digit:]] ]] || [[ ${_srch} =~ :[[:digit:]] ]]; } &&
+    _ret="$(curl --silent --location https://rubygems.org/api/v2/rubygems/"${_srch/%:*}"/versions/"${_srch/#*:}".json | jq -r 'if (.source_code_uri) then (.source_code_uri) else (.homepage_uri) end' 2>/dev/null)";
 
-    { [[ "${_ret,,}" = "null" ]] || [ -z "${_ret}" ]; } && _ret="unknown";
-    _gh_sanitize_url "${_ret}";
-    return
+  #
+  # failing that or if no version number given try v1 api without the version number
+  #
+  [[ -z "${_ret}" ]] &&
+    _ret="$(curl --silent --location https://rubygems.org/api/v1/gems/"${_srch/%:*}".json -o - | jq -r 'if (.source_code_uri) then (.source_code_uri) else (.homepage_uri) end' 2>/dev/null)";
+
+  { [[ "${_ret,,}" = "null" ]] || [ -z "${_ret}" ]; } && _ret="unknown";
+  _gh_sanitize_url "${_ret}";
+  return
 }
 
 cargo_scraper()
@@ -2523,7 +2545,8 @@ cargo_scraper()
   local _ret;
   local _srch;
 
-  _srch="${1}"
+  # don't need the version number as part of this search
+  _srch="${1%[:@]*}"
 
   _say -n " ${FUNCNAME[0]} for ${_srch}";
 
@@ -2547,7 +2570,7 @@ golang_scraper()
   local _srch
   local _ret
 
-  _srch="${1/%@*}"
+  _srch="${1/%[:@]*}"
 
   _say -n " ${FUNCNAME[0]} for ${_srch}";
 
@@ -2608,7 +2631,7 @@ npm_scraper()
 
   _srch="$(cut -d: -f1 <<<"${1}")"
 
-  _say -n " ${FUNCNAME[0]} repo for ${_srch}"
+  _say -n " ${FUNCNAME[0]} for ${_srch}"
 
   #
   # NB: the search API has a 64 byte limit on the search text
@@ -2659,6 +2682,9 @@ maven_scraper()
   local _art
   local _ver
 
+  # here the <name>:<ver> portion of <type>:<name>:<ver> of the arg
+  # is being parsed into search components for maven repo
+  #
   #eval "$(sed 's/\([[:print:]].*\)[:\/]\([[:print:]].*\)[:@]*[v]*\(.*\)/_ver=\3;_art=\2;_dom=\1/g' <<<"${1}")"
   eval "$(sed -E 's/^([^:\/?\n]+)[:\/]([^:@?\n]+)[:@]*v*(.*)/_dom=\1;_art=\2;_ver=\3;/mg' <<<"${1}")"
 
@@ -2742,8 +2768,11 @@ pypi_scraper()
 {
   local _ret;
   local _srch;
+  local _jsonOut;
 
-  _srch="${1%:*}"
+  _jsonOut="$(mktemp -u)"
+
+  _srch="${1%[:@]*}"
 
   _say -n " ${FUNCNAME[0]} for ${_srch}";
 
@@ -2752,24 +2781,45 @@ pypi_scraper()
   #       a srch resulted in nothing but then later
   #       hits
   #
-  _ret="$(curl --silent --location \
-    "https://pypi.org/pypi/${_srch}/json" -o - \
-    | jq -r '
-      .info
-      |.project_urls
-      |[.]
-      ' \
-    | grep -i "github.com" \
-    | sed 's^[[:space:]].*https://^https://^g;s/"$/",/g' \
-    | sort \
-    | uniq \
-    | sed 's/",/,/g' \
-    | tr -d '\n' \
-    | sed 's/,$//g' \
-    )"
+  curl --silent --location \
+    "https://pypi.org/pypi/${_srch}/json" -o "${_jsonOut}"
+
+  _ret="$(jq -r 'if (.info.project_urls.GitHub) then .info.project_urls.GitHub else .info.project_urls[]? end' "${_jsonOut}")"
+
+  case $(grep -c -i "github.com/" <<<"${_ret}") in
+  0) # nothing with github.com clear results
+    _ret=""
+    ;;
+  1) # no op only 1 github.com/ hit let pass thru
+    :
+    ;;
+  *) # uggh more than one try to figure out the right one
+    # is the search name in the possible github.com/ urls
+    _candret="$(grep -i "github.com/" <<<"${_ret}" | grep -E "(${_srch})")"
+    if [[ -n "${_candret}" ]]; then
+      # yep - go with that one
+      _ret="${_candret}"
+    else
+      # no search name match and more than one github.com - sort uniq and hope for one
+      # TODO: find a better way like fuzzy matching
+      _ret="$(grep -i "github.com/" <<<"${_ret}" | sed 's^[[:space:]].*https://^https://^g;s/"$/",/g' | sort | uniq)"
+    fi
+    ;;
+  esac
+
+  rm -f "${_jsonOut}"
 
   [ -z "${_ret}" ] && _ret="${__NOASSERTION__}";
   _gh_sanitize_url "${_ret}";
+  return
+}
+
+_dig4repo_hint()
+{
+  #
+  # commas around the search is needed to ensure only exact matches
+  #
+  grep --fixed-strings ,"${2}", "${1}"  |cut -d, -f4
   return
 }
 
@@ -2791,6 +2841,10 @@ _dig4repo()
     _gh_sanitize_url "${1/%null/${__NOASSERTION__}}" &&
       return
 
+  [[ -f "${_OSSSCIRrepoResolveDB}" ]] && {
+    _ret="$( _dig4repo_hint "${_OSSSCIRrepoResolveDB}" "${1}" )";
+    [[ -n "${_ret}" ]] && _say -n "repo hint hit for ${1} " && _gh_sanitize_url "${_ret}" && return;
+  }
   _eco="$(cut -d: -f1 <<<"${1}")"
   _scraper_fn="${_eco}_scraper"
 
@@ -2849,7 +2903,7 @@ pull_ghSBOM()
     read -r _code </tmp/http_code.out
 
     { [[ ${_rc} -gt 0 ]] || [[ ! -s "${_outfile}" ]]; } &&
-      _warn "${_outfile}: sbom is zero bytes" &&
+      _warn --q "${_outfile}: sbom is zero bytes ${_rc} with ${_code}" &&
       _retry=$((_retry-1)) && _say "sleep penalty" && sleep 3
 
     case "${_code}" in
@@ -2966,7 +3020,7 @@ _dig4subdep()
   local _cmp
   local _r
   local _ftoupdate
-  local _dep
+  local _depdir
   local _depout
   local _pkg
   local _l
@@ -2991,7 +3045,7 @@ _dig4subdep()
   #
   [ "${_lev}" -eq 0 ] && _say "reached limit imposed at level ${_lev} returning..." && return
   # don't dig past dependencyDepth (-d)
-  [[ ${dependencyDepth} != "all" ]] && [[ "${_lev}" -ge ${dependencyDepth} ]] &&
+  [[ ${dependencyDepth} != "all" ]] && [[ "${_lev}" -gt ${dependencyDepth} ]] &&
     if "${_subdepWarningLimit}"; then
       _say -n "${_lev}";
       return;
@@ -3000,20 +3054,24 @@ _dig4subdep()
       _subdepWarningLimit="true";
       return;
     fi;
+
+  _cmp="$(_ph_sanitize_cmp "${_c}")"
+  _dep="$(cut -d, -f2 <<<"${_cmp}")"
+
   #
   # TODO: fix/understand npm dependencies, this algorithm seemingly
   #       goes on forever - just stick to two levels until this is
   #       undertstood
-  [[ "${_c}" =~ ^npm ]] && [ "${_lev}" -eq 2 ] && _warn "npm limit: found level ${_lev} skipping ${_c} returning..." && return
+  [[ "${_cmp}" =~ ^npm ]] && [ "${_lev}" -eq 2 ] && _warn --q "npm limit: found level ${_lev} skipping ${_cmp} returning..." && return
 
 
   # form pkg name, _c, into for needed by
   # phylum.io's API (_pkg) and the naming
   # convention for the subdependent cache
   #
-  _pkg="$(makePuri "${_c}")"
-  _dep="subdeps.d/$(mkdepdir "${_c}")"
-  _depout="${_dep}/$(basename "${_dep}")"
+  _pkg="$(makePuri "${_cmp}")"
+  _depdir="subdeps.d/$(mkdepdir "${_cmp}")"
+  _depout="${_depdir}/$(basename "${_depdir}")"
 
   # start digging on this tree
 
@@ -3028,7 +3086,7 @@ _dig4subdep()
   [ -f "${_depout}_deps.json.visited.err" ] && _say "-n" "^" && return
   [ -f "${_depout}_deps.json.visiting" ] && _say "-n" "%" && return
 
-  mkdir -p "${_dep}"
+  mkdir -p "${_depdir}"
 
   { ${BFLAGS[subdeps]} || ${force_rebuild}; } &&
     cp /dev/null "${_depout}_deps.json"
@@ -3052,21 +3110,24 @@ _dig4subdep()
   #       this grep could results in multiple lines coming back, for for now
   #       only search for relevent github.com hits and ensure only one - not the best
   #
-  _sbomsrc="$(grep --fixed-strings ",${_c}," "${_ftoupdate}" | cut -d, -f4 | grep github.com/ | uniq | head -1)"
+  _sbomsrc="$(grep --fixed-strings ",${_cmp}," "${_ftoupdate}" | cut -d, -f4 | grep github.com/ | uniq | head -1)"
   [[ ! "${_sbomsrc}" =~ github.com  ]] &&
-    __xform_sbom_unsupported "${_c}" "${_sbomsrc}" "sbom API not supported" >"${_depout}_deps.json"
+    { 
+      __xform_sbom_unsupported "${_cmp}" "${_sbomsrc}" "sbom API not supported" >"${_depout}_deps.json" || 
+      _warn --q "::::::::: errno $? on '${_depout}_deps.json'"; } &&
+      touch "${_depout}_deps.json.err";
 
   [ ! -s "${_depout}_deps.json" ] &&
-    _say -n "pulling ${_c} dependencies..." &&
+    _say -n "pulling ${_cmp} dependencies..." &&
     if ! "${_pullFN}" "${_pkg}" "${_depout}_deps.json" "${_sbomsrc}"; then
       [ ! -s "${_depout}_deps.json" ] &&
-        _warn "curl failed for ${_c}"
+        _warn "curl failed for ${_cmp}"
       [ -s "${_depout}_deps.json" ] &&
         mv "${_depout}_deps.json" "${_depout}_deps.json.err" &&
-        _warn "pull failed for ${_c}"
+        _warn "pull failed for ${_cmp}"
 
       touch "${_depout}_deps.json.visited.err"
-      if ! grep -q --fixed-strings ",${_c}," "${_ftoupdate}"; then echo "${_lev},${_c},${_c},${_c},404" >> "${_ftoupdate}"; fi
+      if ! grep -q --fixed-strings ",${_cmp}," "${_ftoupdate}"; then echo "${_lev},${_cmp},${_dep},unknown,404" >> "${_ftoupdate}"; fi
       _say "-n" "&" && return
     fi;
 
@@ -3084,8 +3145,6 @@ _dig4subdep()
   _r="$(jq -r '.repoUrl|select(.!=null)' "${_depout}_deps.json")"
   [[ -z "${_r}" ]] && _r="${__NOASSERTION__}"
   # if (! grep -q ${id} /etc/passwd) && (! grep ${id} /etc/group); then echo not there; fi
-  _dep="$(_ph_sanitize_dep "${_c}")"
-  _cmp="$(_ph_sanitize_cmp "${_c}")"
   #
   # short cut to reduce calls to _dig4repo
   # that is only _dig4repo if this pattern is NOT
@@ -3096,8 +3155,9 @@ _dig4subdep()
   [[ ! ${_line} =~ ^1, ]] && ! grep -q -o -E "(^${_line}$)" "${_ftoupdate}" &&
   {
     _r=$(_dig4repo "${_cmp}");
-    _line="${_lev},${_cmp},${_dep},${_r},200" && _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]] && _fatal "corrupt line: ${_line}";
-    if ! grep -q --fixed-strings "${_line}" "${_ftoupdate}"; then echo "${_line}" >> "${_ftoupdate}"; fi;
+    _line="${_lev},${_cmp},${_dep},${_r},200" && { _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]]; } || { grep -q --fixed-strings ,, <<<"${_line}"; } &&
+      _warn "_cmp '${_cmp}' _depout '${_depout}'" && _fatal "corrupt ${_line}";
+    if ! grep --fixed-strings -s -q "${_line}" "${_ftoupdate}"; then echo "${_line}" >> "${_ftoupdate}"; fi;
   }
 
     while :; do #{
@@ -3111,10 +3171,13 @@ _dig4subdep()
       _l=$((_lev+1))
       #
       # record dependency (parent/child) relationship
-      # TODO: does _d really need to be _ph_sanitize_dep()
-      #
-      [[ ${_d} =~ % ]] && _d=$( urldecode "${_d}" )
-      echo "#s ${_d}" >> "${__tmp_dep_graph}" && echo "\"${_c}\" -> \"${_d}\";" >> "${__tmp_dep_graph}";
+      # the dependency (_d) will be sanitized and captured during recursive decent
+      # however recording the dependency in the graphviz want the sanitized version
+      _line="\"${_cmp}\" -> \"$(_ph_sanitize_cmp "${_d}")\";"
+      ! grep --fixed-strings -s -q "${_line}" "${__tmp_dep_graph}" && {
+        echo "#s:${_l} ${_d}" >> "${__tmp_dep_graph}" && echo "${_line}" >> "${__tmp_dep_graph}";
+      }
+      # still need to dig regardless as depth may have changed
       _dig4subdep "${_l}" "${_d}" "${_ftoupdate}"
     done < <(jq -r '.dependencies[]|.id' "${_depout}_deps.json" 2>/dev/null | sort) #}
 
@@ -3149,7 +3212,7 @@ _phylum_prjId()
 
   echo "${_label}$(jq -r '
     .values[] | select(.name==env._prj) |
-      [ .name,.id ] | @csv' "${2}" | \
+      [ .name,.id ] | @csv' "${2}" 2>/dev/null | \
     cut -d, -f2 | sed 's/"//g')"
 }
 
@@ -3253,7 +3316,7 @@ _phylum_jobStatus()
 
  _job="$(_phylum_jobId "${1}" "${2}")"
  [[ -z "${_job/,*/}" ]] && _job=null
- jq -r '.status' "${1}_job_${_job/,*/}.json"
+ { [[ -f "${1}_job_${_job/,*/}.json" ]] && jq -r '.status' "${1}_job_${_job/,*/}.json"; } || echo "";
 
  return
 }
@@ -3345,7 +3408,7 @@ __phylum_deps()
 __xform_sbom_unsupported()
 {
   echo "{ \"dependencies\": [], \"_c\": \"${1}\", \"_sbomsrc\": \"${2}\" , \"_msg\": \"${3}\" }";
-  return
+  return 0
 }
 
 #  __xform_sbom_prds_dep "${_sbomsrc}" "${_file}"
@@ -3454,8 +3517,17 @@ _phylum_dep_components()
         break;
       fi
 
-      _dep="$(_ph_sanitize_dep "${_c}")"
       _cmp="$(_ph_sanitize_cmp "${_c}")"
+      _dep="$(cut -d, -f2 <<<"${_cmp}")"
+
+      #
+      # record uniq parent/child dependency relationship for graphing
+      #
+      _line="\"${1}\" -> \"${_cmp}\";"
+      ! grep --fixed-strings -s -q "${_line}" "${__tmp_dep_graph}" && {
+        echo "#p ${_cmp}" >> "${__tmp_dep_graph}" && echo "${_line}" >> "${__tmp_dep_graph}";
+      }
+
       #
       # short cut to reduce calls to _dig4repo
       # that is if this pattern is in the file about
@@ -3472,23 +3544,11 @@ _phylum_dep_components()
         _repo=$(_dig4repo "${_r}")
       fi
       #
-      # make list of projects
-      # 5   : 1,
-      # _cmp: rubygems:parallel:1.22.1,
-      # _dep: parallel,
-      # repo: github.com/grosser/parallel/tree/v1.22.1,
-      # code: 100
+      # keep a list of projects with their repo/vcs home
       #
-      # 5   : 1,
-      # _cmp: rubygems:json:2.6.1,
-      # _dep: json,
-      # repo: github.com/flori/json,
-      # code: 100
-      #
-        _line="${5},${_cmp},${_dep},${_repo},100" && _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]] && _fatal "corrupt line: ${_line}"
-      ! grep --fixed-strings -s -q "$_line" "${4}" && {
-        echo "$_line" >> "${4}";
-        echo "# ${_dep}" >> "${__tmp_dep_graph}" && echo "\"${1}\" -> \"${_cmp}\";" >> "${__tmp_dep_graph}";
+      _line="${5},${_cmp},${_dep},${_repo},100" && _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]] && _fatal "corrupt primary line: ${_line}"
+      ! grep --fixed-strings -s -q "${_line}" "${4}" && {
+        echo "${_line}" >> "${4}";
       }
     done < <(jq -r '.dependencies[]|.id,.repoUrl' "${3}") #}
 
@@ -3523,14 +3583,15 @@ _phylum_subdep_components()
       fi
 
       # detect SBOM externalRefs referenceLocator (PACKAGE-MANAGER purl)
-      # form is pkg:<eco>/<place>@<ver>
-      if [[ ${_c} =~ ^pkg: ]]; then
+      # form is pkg:<type>/<name>@<ver>
+      if [[ "${_c}" =~ ^pkg: ]]; then
+        _c="$(_ph_sanitize_cmp "${_c}")"
         # this order permits npm:@types... example pattern
-        [[ ${_c} =~ % ]] && _c=$( urldecode "${_c}" )
+        #[[ ${_c} =~ % ]] && _c=$( urldecode "${_c}" )
         # for the project csv, make _c look the same as legacy phylum (for now)
-        #   form is <eco>:<place>:<ver>
-        # shellcheck disable=2001
-        _c="$(sed 's^/^:^;s/@\([[:digit:]]\)/:v\1/' <<< "${_c/pkg:}" )"
+        #   form is <type>:<name>:<ver>
+        # Xshellcheck disable=2001
+        #_c="$(sed 's^/^:^;s/@\([[:digit:]]\)/:v\1/' <<< "${_c/pkg:}" )"
       fi
 
       _dig4subdep "${_level}" "${_c}" "${_prjs}"
@@ -3557,7 +3618,7 @@ digraph G {
     graph [ resolution=128, fontname=Arial, fontcolor=blue, fontsize=10, rankdir=LR ];
     node [ fontname=Arial, fontcolor=blue, fontsize=10];
     edge [ fontname=Helvetica, fontcolor=red, fontsize=10 ];
-    $(cat "${1}")
+$(cat "${1}")
 }
 _DIGRAPHEOF
 
@@ -3786,7 +3847,6 @@ _run_hipcheck()
         grep -E risk\ rated "${_toutput}" >/dev/null ||
         {
           _warn "hipcheck ${_toutput} failed, see file for hints" &&
-          _debug "RETURNING FROM HERE" &&
           return
         }
       } &&
@@ -4577,7 +4637,7 @@ build_caches()
         -H "Accept: application/vnd.github+json" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
         "${__ghr}/dependency-graph/sbom" \
-        -o "${__ghrsbomjson}" \
+        -o "${__ghrsbomjson}" >/dev/null \
      ||
       _fatal "gh-api SBOM pre-cache failed ${?}.";
     };
@@ -4920,6 +4980,7 @@ check_runtime()
       _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
       _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
       _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
+      _OSSSCIRrepoResolveDB="${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv"
     fi
   }
 
@@ -4958,7 +5019,7 @@ check_runtime()
   done
 
   local -n _sp
-  for _sp in _MITRHCconfig _MITRHCscripts _OSSSCIRlicenseDB
+  for _sp in _MITRHCconfig _MITRHCscripts _OSSSCIRlicenseDB _OSSSCIRrepoResolveDB
   do
     _info "config setting ${!_sp}=${_sp}"
     [[ ! -r "${_sp}" ]] && _err "can't find path/file for ${!_sp}=${_sp}" && _rc=1
@@ -4972,7 +5033,7 @@ check_runtime()
   [[ (( $(find "${_MITRHCscripts}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod o+rx ${_MITRHCscripts}/" && _rc=1
   [[ (( $(find "${_MITRHCscripts}" -type f -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod o+r ${_MITRHCscripts}/*" && _rc=1
   [[ (( $(find "${_OSSSCIRlicenseDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRlicenseDB}" && _rc=1
-
+  [[ (( $(find "${_OSSSCIRrepoResolveDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRrepoResolveDB}" && _rc=1
   #
   # grab version numbers for report metadata
   #
@@ -5900,13 +5961,13 @@ newScores="false"
 do_reports="false"
 quiet="false"
 verbose="false"
-dependencyDepth="all"
+dependencyDepth="3"
 scoreDepth=0
 scoreTimeout=""
 
 component=
 puri="${__NULLPURI__}"
-report_type=
+report_type=all
 gh_site="${__NULLGH__}"
 dependency_src=${component}
 dependency_type=
@@ -6007,8 +6068,8 @@ while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
 
   OPTIONS
 
-  -c:  set number of days for cache staleness check (default: 2)
-  -d:  set depth number on dependencies to dig into (default: all (no limit))
+  -c:  set number of days for cache staleness check (default: ${_cache_days})
+  -d:  set depth number on dependencies to dig into (default: ${dependencyDepth}, primary - teritary, or 'all' (no limit))
   -f:  force rebuild (overrides -p) of all or specific(s) caches, scores, reports or other data
        comma separate being ${_bldFlags}
   -h:  this message (and exit)
@@ -6020,15 +6081,16 @@ while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
   -v:  verbose, not quiet
   -B:  build body of evidence (.tgz) suitable for archive storage
   -C:  set local component name/project name (REQUIRED)
-  -D:  set depth on dependencies to run scorecards (default: 0, top component only, or 'all' (no limit))
+  -D:  set depth on dependencies to run scorecards (default: ${scoreDepth}, top component only, or 'all' (no limit))
   -G:  set Github project site (REQUIRED)
-  -L:  make one or more subreports and exit (default 'all')
+  -L:  make one or more subreports and exit (default '${report_type}')
   -O:  offline - do not use networking (some capabilities will be degraded) relies on cached data
-  -P:  set Phylum.io project name (default: same as -C) (REQUIRED)
-  -U:  use package URI spec rather than a Phylum.io project name (e.g., npm:@babel/highlight:^7.18.6)
+  -P:  set project dependency source (github:sbom, <jsonfile>:sbom, <project>:phylum, <uri>:phylum) (REQUIRED)
+       (sbom types automatically detected: SPDX, CycloneDX (coming soon))
+  -U:  *deprecated* use package URI spec rather than a Phylum.io project name (e.g., npm:@babel/highlight:^7.18.6)
   -V:  display version (and exit)
   -W:  watch docker scorecards run not to exceed time limit (default: ${__TIMEOUT__} seconds)
-  -Z:  specify certificates trust store when required by enterprise-level proxies
+  -Z:  specify certificates trust store(s) when required by enterprise-level proxies
        which may be in use (e.g. -Z '/etc/ssl/certs/ca-certificates.crt')
 
   BUILD FLAGS (-f 'flag1[,flag2,...]')
@@ -6082,7 +6144,7 @@ _say "establishing componment working folder ${component}"
 mkdir -p "${component}"
 
 _say "setting current working folder to ${component}"
-pushd "${component}" >&"${_fdwarn}" || _fatal "can't set working folder to ${component}"
+pushd "${component}" >&"${_fdverbose}" || _fatal "can't set working folder to ${component}"
 
 #
 # since 'preMVP 240507a (branch: main)' tidy

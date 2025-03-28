@@ -101,7 +101,7 @@ $ ./scir-oss.sh -h
   OPTIONS
 
   -c:  set number of days for cache staleness check (default: 2)
-  -d:  set depth number on dependencies to dig into (default: all (no limit))
+  -d:  set depth number on dependencies to dig into (default: 3, primary - teritary, or 'all' (no limit))
   -f:  force rebuild (overrides -p) of all or specific(s) caches, scores, reports or other data
        comma separate being 'all', or one or more of: cards,caches,deps,subdeps,meta,crit,scard,hcheck,scores,issues,job
   -h:  this message (and exit)
@@ -109,6 +109,7 @@ $ ./scir-oss.sh -h
   -o:  build only the BoE (i.e., do nothing else but that, and exit. see -B)
   -p:  protect, no automatic updates (useful for reproducibility)
   -q:  quiet (overrides verbose, warnings)
+  -u:  update modifier to force rebuild (preserves information where possible, e.g., deps, subdeps)
   -v:  verbose, not quiet
   -B:  build body of evidence (.tgz) suitable for archive storage
   -C:  set local component name/project name (REQUIRED)
@@ -116,7 +117,7 @@ $ ./scir-oss.sh -h
   -G:  set Github project site (REQUIRED)
   -L:  make one or more subreports and exit (default 'all')
   -O:  offline - do not use networking (some capabilities will be degraded) relies on cached data
-  -P:  set project dependency source (default: github:sbom, <jsonfile>:sbom, <project>:phylum, <uri>:phylum) (REQUIRED)
+  -P:  set project dependency source (github:sbom, <jsonfile>:sbom, <project>:phylum, <uri>:phylum) (REQUIRED)
        (sbom types automatically detected: SPDX, CycloneDX (coming soon))
   -U:  *deprecated* use package URI spec rather than a Phylum.io project name (e.g., npm:@babel/highlight:^7.18.6)
   -V:  display version (and exit)
