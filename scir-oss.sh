@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
 #
 
-readonly _version="pubRel 250317a (branch: publicRelease)"
+readonly _version="pubRel 250330a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -66,7 +66,7 @@ _cleanup_and_exit()
 {
   _say "oss-p4/4 done."
   [[   "${__logfil}" == "${__NULLLOG__}" ]] && rm -f "${__logfil}"
-  [[ ! "${__logfil}" == "${__NULLLOG__}" ]] && [[ -f "${__logfil}" ]] && mv "${__logfil}" logs/
+  [[ ! "${__logfil}" == "${__NULLLOG__}" ]] && [[ -d logs/ ]] && [[ -f "${__logfil}" ]] && mv "${__logfil}" logs/
 
   rm -f "${__RATELIMIT__}"
   #
@@ -154,7 +154,7 @@ readonly __SECTION__="<hr style='border: 10px solid gray; border-radius: 5px'/>"
 
 readonly __NULLGH__=":owner/:repo"
 readonly __NULLPURI__=":eco:name:ver"
-__NULLLOG__="$(mktemp -u -p .)"
+__NULLLOG__="$(mktemp -u -p . -t nulllog.XXXXXXXXXX)"
 readonly __NULLLOG__
 readonly __TIMEOUT__="300"
 readonly __SBOM__="SBOM"
@@ -854,7 +854,7 @@ jq_legacyPhylumScores()
 {
   local __myphyc
 
-  __myphyc=$(mktemp -u -p .)
+  __myphyc=$(mktemp -u -p . -t legacyScores.XXXXXXXXXX)
 
   jq -r 'paths(scalars | true) as $p
     | [ ( [ $p[] | tostring ] | join(".") ), ( getpath($p) | tojson )] | join(": ")' \
@@ -2423,7 +2423,7 @@ _totalRuntime()
   local _s
   local _f
 
-  _f="$(mktemp)"
+  _f="$(mktemp -u -p . -t runtime.XXXXXXXXXX)"
 
   for f in ${1} logs/${1}
   do
@@ -2442,7 +2442,8 @@ _totalRuntime()
 }
 
 #
-# partially follows rules at https://github.com/package-url/purl-spec/blob/main/PURL-SPECIFICATION.rst
+# partially follows rules at github.com/package-url/purl-spec/blob/main/PURL-SPECIFICATION.rst
+# and                        github.com/package-url/purl-spec/blob/main/VERSION-RANGE-SPEC.rst
 #      _cmp="$(_ph_sanitize_cmp "${_c}")"
 _ph_sanitize_cmp()
 {
@@ -2461,6 +2462,17 @@ _ph_sanitize_cmp()
     [[ "${_cmpgrps}" == "${_c/%[?#]*/}" ]] && _warn "${_cmpgrps}: invalid purl" && echo "${_c}" && return
 
     eval "${_cmpgrps}"
+    #
+    # next need to eliminate version ranges in the purl specification, easiet before decoding
+    # shellcheck disable=2154
+    [[ ${_vqs_valg4} =~ % ]] && {
+      # this will change '%5E11.4.0%2C%20%3C11.4.9' to this '11.4.0'
+      # false positive check, don't want shell expansion
+      # shellcheck disable=2016
+      _cmpgrps="$(sed -E 's$([%][0-9A-F][0-9A-F])*([0-9.]+)*(.*)$\2$' <<<"${_vqs_valg4}")"
+      [[ "${_cmpgrps}" != "${_vqs_valg4}" ]] && _vqs_valg4="${_cmpgrps}"
+    }
+    # 
     # for the project csv, make _c look the same as legacy phylum (for now)
     #   form is <type>:<name>:<ver>
     # false positive check, vars are indirectly assigned in a successful match in the sed above
@@ -2640,7 +2652,7 @@ npm_scraper()
   #       too optimistic/narrow - as the json returned
   #       for npm matches are really fuzzy as I can tell
   #
-  _jsonOut="$(mktemp -u)"
+  _jsonOut="$(mktemp -u -p . -t npm_scr.XXXXXXXXXX)"
   _localRetry=1
   while [[ $_localRetry -lt 5 ]];
   do
@@ -2686,7 +2698,8 @@ maven_scraper()
   # is being parsed into search components for maven repo
   #
   #eval "$(sed 's/\([[:print:]].*\)[:\/]\([[:print:]].*\)[:@]*[v]*\(.*\)/_ver=\3;_art=\2;_dom=\1/g' <<<"${1}")"
-  eval "$(sed -E 's/^([^:\/?\n]+)[:\/]([^:@?\n]+)[:@]*v*(.*)/_dom=\1;_art=\2;_ver=\3;/mg' <<<"${1}")"
+  #eval "$(sed -E 's/^([^:\/?\n]+)[:\/]([^:@?\n]+)[:@]*v*(.*)/_dom=\1;_art=\2;_ver=\3;/mg' <<<"${1}")"
+  eval "$(sed -E 's/^([^:\/?\n]+)[:\/]([^:?\n]+)[:@]*v*(.*)/_dom=\1;_art=\2;_ver=\3;/mg' <<<"${1}")"
 
   { [[ -z "${_ver}" ]] && [[ -z "${_art}" ]] && [[ -z "${_dom}" ]] && _say "${FUNCNAME[0]} for '${1}': malformed" && echo "unknown" && return; } || _say "version: '${_ver}' article: '${_art}' domain: '${_dom}'"
 
@@ -2702,7 +2715,7 @@ maven_scraper()
   _loc="repo1.maven.org/maven2"
   _srch="${_dom//\./\/}/${_art}/${_ver}/${_art}-${_ver}.pom"
 
-  _jsonOut="$(mktemp -u)"
+  _jsonOut="$(mktemp -u -p . -t mvn_scr.XXXXXXXXXX)"
   _localRetry=1
   _htcode=
   while [[ $_localRetry -lt 3 ]];
@@ -2770,7 +2783,7 @@ pypi_scraper()
   local _srch;
   local _jsonOut;
 
-  _jsonOut="$(mktemp -u)"
+  _jsonOut="$(mktemp -u -p . -t pyp_scr.XXXXXXXXXX)"
 
   _srch="${1%[:@]*}"
 
@@ -2843,7 +2856,7 @@ _dig4repo()
 
   [[ -f "${_OSSSCIRrepoResolveDB}" ]] && {
     _ret="$( _dig4repo_hint "${_OSSSCIRrepoResolveDB}" "${1}" )";
-    [[ -n "${_ret}" ]] && _say -n "repo hint hit for ${1} " && _gh_sanitize_url "${_ret}" && return;
+    [[ -n "${_ret}" ]] && _say -n " repo hint hit for ${1} " && _gh_sanitize_url "${_ret}" && return;
   }
   _eco="$(cut -d: -f1 <<<"${1}")"
   _scraper_fn="${_eco}_scraper"
@@ -2873,6 +2886,7 @@ pull_ghSBOM()
   local _outfile=${2}
   local _sbom_from=${3}
   local _rc=1
+  local _code_out
   readonly _outfile
   readonly _sbom_from
   local _retry=${_phy_pkg_api_retry_count}
@@ -2884,6 +2898,7 @@ pull_ghSBOM()
   #
   # do until a success or break after retries
   #
+  _code_out="$(mktemp -u -p . -t sbom_http_code.XXXXXXXXXX)"
   while [[ ${_retry} -gt 0 ]] #{
   do
     waitRateLimit "${_lowerLimit}"
@@ -2892,15 +2907,16 @@ pull_ghSBOM()
     # TODO: determine if there are other
     #       places where this needs to be
     #
+
     curl --location --silent --write-out "%{http_code}" \
       -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
       -H "Accept: application/vnd.github+json" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
       "${_sbom_from}/dependency-graph/sbom" \
-      -o "${_outfile}" >/tmp/http_code.out
+      -o "${_outfile}" > "${_code_out}"
 
     _rc="${?}"
-    read -r _code </tmp/http_code.out
+    read -r _code < "${_code_out}"
 
     { [[ ${_rc} -gt 0 ]] || [[ ! -s "${_outfile}" ]]; } &&
       _warn --q "${_outfile}: sbom is zero bytes ${_rc} with ${_code}" &&
@@ -2918,6 +2934,7 @@ pull_ghSBOM()
 
     [[ ${_rc} -eq 0 ]] && _retry=0
   done #}
+  rm -f "${_code_out}"
 
   #
   # transform sbom to support phylum dependency format (for now)
@@ -3156,7 +3173,7 @@ _dig4subdep()
   {
     _r=$(_dig4repo "${_cmp}");
     _line="${_lev},${_cmp},${_dep},${_r},200" && { _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]]; } || { grep -q --fixed-strings ,, <<<"${_line}"; } &&
-      _warn "_cmp '${_cmp}' _depout '${_depout}'" && _fatal "corrupt ${_line}";
+      _warn "_cmp '${_cmp}' _depout '${_depout}'" && _fatal "corrupt ${_line} pkg being ${_c}";
     if ! grep --fixed-strings -s -q "${_line}" "${_ftoupdate}"; then echo "${_line}" >> "${_ftoupdate}"; fi;
   }
 
@@ -3258,8 +3275,8 @@ _phylum_jobId()
     _verb="has been cached" &&
     cp /dev/null "${1}_job_${_job}.json"
 
-  _jobFile="$(mktemp -u -p .)"
-  _walker_file="$(mktemp -u -p .)"
+  _jobFile="$(mktemp -u -p . -t jobFile.XXXXXXXXXX)"
+  _walker_file="$(mktemp -u -p . -t wlkFile.XXXXXXXXXX)"
 
 cat <<-'_JQWALKEREOF' > "${_walker_file}"
 # Apply f to composite entities recursively, and to atoms
@@ -3546,7 +3563,7 @@ _phylum_dep_components()
       #
       # keep a list of projects with their repo/vcs home
       #
-      _line="${5},${_cmp},${_dep},${_repo},100" && _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]] && _fatal "corrupt primary line: ${_line}"
+      _line="${5},${_cmp},${_dep},${_repo},100" && _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]] && _fatal "corrupt primary line: ${_line} pkg being ${_c}"
       ! grep --fixed-strings -s -q "${_line}" "${4}" && {
         echo "${_line}" >> "${4}";
       }
@@ -3619,6 +3636,7 @@ digraph G {
     node [ fontname=Arial, fontcolor=blue, fontsize=10];
     edge [ fontname=Helvetica, fontcolor=red, fontsize=10 ];
 $(cat "${1}")
+    #end scir digraph $(date +%s)
 }
 _DIGRAPHEOF
 
@@ -3636,7 +3654,7 @@ _DIGRAPHEOF
 # if approaching the ratelimit, sleep until
 # the limit is reset (usually an hour at most)
 #
-__RATELIMIT__="$(mktemp -u)"
+__RATELIMIT__="$(mktemp -u -p . -t rateLim.XXXXXXXXXX)"
 waitRateLimit()
 {
   local _l
@@ -5001,9 +5019,9 @@ check_runtime()
   #
   # the docker images
   #
-  rm -f /tmp/scir-dimg.*
-  if ! ${_sudo} docker image ls > /tmp/scir-dimg.${$} 2>&1; then
-    _warn "docker: sudo required see /tmp/scir-dimg.${$} for more details"
+  rm -f ./scir-dimg.*
+  if ! ${_sudo} docker image ls > ./scir-dimg.${$} 2>&1; then
+    _warn "docker: sudo required see '$(realpath ./scir-dimg.${$})' for more details"
     _sudo="sudo -E"
   fi
 
@@ -5707,7 +5725,9 @@ __main__()
   # and build a Graphviz formatted digraph
   #
   [[ -f "${__tmp_dep_graph}" ]] && _say "building digraph of dependencies..." && _build_digraph "${__tmp_dep_graph}" && rm "${__tmp_dep_graph}"
-
+  { ! grep -q --fixed-strings 'digraph G {' "${__component_dep_graph}" 2>/dev/null && \
+    ! grep -q --fixed-strings '^}' "${__component_dep_graph}" 2>/dev/null; } \
+      && _warn "${__component_dep_graph}: missing or incomplete."
   #
   # TODO: only remove ${component}_coalesce.csv
   #       if and only if after rebuilding, any files
@@ -6128,6 +6148,9 @@ ${quiet} &&
 
 _say "cmdline: ${_cmdline}"
 
+[[ -n "$(ls "${component}"/run-*log 2>/dev/null)" ]] &&
+  _fatal "found potentially active runlog(s): '$(ls "${component}"/run-*log)', remove/move if not busy/active"
+
 #
 # do any overriders here
 #
@@ -6186,7 +6209,7 @@ __component_prjs="${component}"_dep_prjs.csv
 #
 # dependency graph in Graphviz format
 #
-__tmp_dep_graph="$(mktemp -u -p .)"
+__tmp_dep_graph="$(mktemp -u -p . -t depGraph.XXXXXXXXXX)"
 __component_dep_graph="${component}_dep_digraph.txt"
 
 # https://api.github.com/repos/:owner/:repo
