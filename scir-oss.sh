@@ -27,10 +27,10 @@
 #
 # to find main search down for __main__
 # bash entrypoint (bash script start) search down for __entrypoint__
-# bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
+# bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250330a (branch: publicRelease)"
+readonly _version="pubRel 250331a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -40,13 +40,36 @@ readonly _version="pubRel 250330a (branch: publicRelease)"
 #
 # TODO: make this 'settings' folder path/name a command line arg
 #
-_OSSSCIRsettings="/vagrant/scir-oss/settings"
+_OSSSCIRsettings=${_OSSSCIRsettings:-"/vagrant/scir-oss/settings"}
 _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
 _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
 _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
 _OSSSCIRrepoResolveDB="${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv"
 _CAStoreVolume=
 _CAStoreDocker=
+
+#
+# experimental blacklists
+# blacklists are purl/pkg specs to ignore from dependency digging
+# this are implemented at three levels, primary, secondary, and
+# teritary (including beyond). the blacklist is a regex which is
+# used to ignore dependencies (i.e., referenceLocator)
+#
+# examples:
+# export _PRIMARY_BLACKLIST="pkg:githubactions|pkg:github"
+# export _SECONDARY_BLACKLIST="${_PRIMARY_BLACKLIST}|pkg:composer"
+# export _TERTIARY_BLACKLIST="${_SECONDARY_BLACKLIST}|pkg:npm"
+# idea: _TERTIARY_BLACKLIST="4/${_SECONDARY_BLACKLIST}|pkg:npm"
+#       to mean levels 4 and above
+# primary components excluded from dependency search are those matching
+#   githubactions and github; secondary components are the same with the
+#   addition of composer; and teritary and beyond ignores all those as
+#   well as npm.
+#
+readonly _NULL_BLACKLIST_="__NULL_BLACKLIST__"
+_PRIMARY_BLACKLIST="${_PRIMARY_BLACKLIST:-${_NULL_BLACKLIST_}}"
+_SECONDARY_BLACKLIST="${_SECONDARY_BLACKLIST:-${_NULL_BLACKLIST_}}"
+_TERTIARY_BLACKLIST="${_TERTIARY_BLACKLIST:-${_NULL_BLACKLIST_}}"
 
 # env var to check json files pulled via curl
 # mostly for debug purposes
@@ -64,7 +87,7 @@ _debugVerifyCurlJsons="${_debugVerifyCurlJsons:-false}"
 #
 _cleanup_and_exit()
 {
-  _say "oss-p4/4 done."
+  _say "oss-p4/R done."
   [[   "${__logfil}" == "${__NULLLOG__}" ]] && rm -f "${__logfil}"
   [[ ! "${__logfil}" == "${__NULLLOG__}" ]] && [[ -d logs/ ]] && [[ -f "${__logfil}" ]] && mv "${__logfil}" logs/
 
@@ -2071,6 +2094,12 @@ _dep_up2date()
   return
 }
 
+_max_project_dep()
+{
+  { [[ -f "${1}" ]] && echo -n "$(cut -d, -f1 "${1}"|sort -n|tail -1)"; } || echo -n "unknown"
+  return
+}
+
 _project_dep()
 {
   local _pat
@@ -2086,20 +2115,35 @@ _project_dep()
   #
   _mod="-i"
   _found=',100'
-  [ "${1}" == "--subs" ] && _pat='^[01],' && _f="${3}" && _mod='-v' && _found=',200'
+  case "${1}" in
+    --pri)
+      _f="${3}"
+      ;;
+    --sec)
+      _pat='^[2],'
+      _f="${3}"
+      _found=',200'
+      ;;
+    --ter)
+      _pat='^[012],'
+      _mod='-v'
+      _f="${3}"
+      _found=',200'
+      ;;
+  esac
 
   {
     echo -n "Total found: ";
     # shellcheck disable=2126
-    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | wc -l)";
+    _c="$(grep -c ${_mod} -E "(${_pat})" "${_f}")"; set +x
     echo "$(_fotp --warnFlag "${_c}" "0")${_c}"
     echo -n ", dependencies pulled: ";
     # shellcheck disable=2126
-    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep "${_found}" | wc -l)";
+    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep -c "${_found}")"; set +x
     echo "$(_fotp --warnFlag "${_c}" "0")${_c}"
     echo -n ", dependencies unknown: ";
     # shellcheck disable=2126
-    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep ",404" | wc -l)";
+    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep -c ",404")"; set +x
     echo "$(_fotp --warnFlag "${_c}" "1" "ge")${_c}"
   }
 
@@ -2472,7 +2516,7 @@ _ph_sanitize_cmp()
       _cmpgrps="$(sed -E 's$([%][0-9A-F][0-9A-F])*([0-9.]+)*(.*)$\2$' <<<"${_vqs_valg4}")"
       [[ "${_cmpgrps}" != "${_vqs_valg4}" ]] && _vqs_valg4="${_cmpgrps}"
     }
-    # 
+    #
     # for the project csv, make _c look the same as legacy phylum (for now)
     #   form is <type>:<name>:<ver>
     # false positive check, vars are indirectly assigned in a successful match in the sed above
@@ -2644,6 +2688,10 @@ npm_scraper()
   _srch="$(cut -d: -f1 <<<"${1}")"
 
   _say -n " ${FUNCNAME[0]} for ${_srch}"
+  #
+  # 1 character len _srch result in a 400 response don't bother
+  #
+  [[ ${#_srch} -le 1 ]] && _gh_sanitize_url "${__NOASSERTION__}"
 
   #
   # NB: the search API has a 64 byte limit on the search text
@@ -3127,12 +3175,16 @@ _dig4subdep()
   #       this grep could results in multiple lines coming back, for for now
   #       only search for relevent github.com hits and ensure only one - not the best
   #
-  _sbomsrc="$(grep --fixed-strings ",${_cmp}," "${_ftoupdate}" | cut -d, -f4 | grep github.com/ | uniq | head -1)"
+#  _sbomsrc="$(grep --fixed-strings ",${_cmp}," "${_ftoupdate}" | cut -d, -f4 | grep github.com/ | uniq | head -1)"
+  _sbomsrc="$(grep --fixed-strings ",${_cmp}," "${_ftoupdate}" | cut -d, -f4 | uniq | head -1)"
   [[ ! "${_sbomsrc}" =~ github.com  ]] &&
     { 
       __xform_sbom_unsupported "${_cmp}" "${_sbomsrc}" "sbom API not supported" >"${_depout}_deps.json" || 
       _warn --q "::::::::: errno $? on '${_depout}_deps.json'"; } &&
-      touch "${_depout}_deps.json.err";
+      touch "${_depout}_deps.json.err" &&
+      touch "${_depout}_deps.json.visited.err" &&
+      if ! grep -q --fixed-strings ",${_cmp}," "${_ftoupdate}"; then echo "${_lev},${_cmp},${_dep},unknown,404" >> "${_ftoupdate}"; fi &&
+      _say "-n" "&" && return
 
   [ ! -s "${_depout}_deps.json" ] &&
     _say -n "pulling ${_cmp} dependencies..." &&
@@ -3196,7 +3248,7 @@ _dig4subdep()
       }
       # still need to dig regardless as depth may have changed
       _dig4subdep "${_l}" "${_d}" "${_ftoupdate}"
-    done < <(jq -r '.dependencies[]|.id' "${_depout}_deps.json" 2>/dev/null | sort) #}
+    done < <(jq -r '.dependencies[]|.id' "${_depout}_deps.json" 2>/dev/null | grep -v -E "(${_TERTIARY_BLACKLIST})" | sort) #}
 
   touch "${_depout}_deps.json.visited"
   rm -f "${_depout}_deps.json.visiting"
@@ -3518,18 +3570,15 @@ _phylum_dep_components()
     _prjid=$(_phylum_prjId --terse "${1}" "${2}")
     [[ "${puri}" == "${_prjid}" ]] && _apiMethod="packages" && _prjid="$(makePuri "${puri}")"
 
-    [[ -z "${_prjid}" ]] && _fatal "phylum-api project ${1} not found."
+    [[ -z "${_prjid}" ]] && _fatal "project ${1} not found."
     __phylum_deps "${_apiMethod}" "${_prjid}" "${1}" "${3}"
   fi
 
   ! "${_updatingFlag}" && _say "resetting ${4}" && cp /dev/null "${4}" && cp /dev/null "${__tmp_dep_graph}" && component_subdep_rebuild="true";
 
-  _say "getting Phylum analysis job" && _phylum_jobStatus "${1}" "${3}" 1>/dev/null 2>&1;
+  _say "getting analysis job" && _phylum_jobStatus "${1}" "${3}" 1>/dev/null 2>&1;
 
-    while :; do #{
-      read -r _c
-      read -r _r
-
+    while IFS=$'\t' read -r  _c _r; do #{
       if [ -z "${_c}" ]; then
         break;
       fi
@@ -3567,8 +3616,7 @@ _phylum_dep_components()
       ! grep --fixed-strings -s -q "${_line}" "${4}" && {
         echo "${_line}" >> "${4}";
       }
-    done < <(jq -r '.dependencies[]|.id,.repoUrl' "${3}") #}
-
+    done < <(jq -j -r '.dependencies[]|.id,"\t",.repoUrl,"\n"' "${3}" |grep -v -E "(${_PRIMARY_BLACKLIST})")
   return
 }
 
@@ -3613,7 +3661,7 @@ _phylum_subdep_components()
 
       _dig4subdep "${_level}" "${_c}" "${_prjs}"
     done < <( \
-      jq -r '.dependencies[]|.id' "${_prds}" | grep -v -E '(^[[:space:]].*$|^$)' \
+      jq -r '.dependencies[]|.id' "${_prds}" | grep -v -E "(${_SECONDARY_BLACKLIST})" | grep -v -E '(^[[:space:]].*$|^$)' \
       | sort) #}
 
   # TODO: to rebuild/pass over all previously
@@ -4685,7 +4733,7 @@ build_caches()
   #########
   # pre-cache phylum projects
   [[ "${dependency_type}" == "${__PHYLUM__}" ]] && {
-     _phy_prj_cache
+    _phy_prj_cache
   }
 
   return
@@ -4821,6 +4869,7 @@ produce_BoE()
   ! _chksum="$(build_BoE_tarball "${_c}")" && _warn "failed to build the BoE archive (.tgz)" && return 1
 
   # checksum the tarball
+  # since tarball has ':' in the name use 'tar tvfz <boefile>.tgz --force-local'
   ! mv "${_c}-scir-p4r-boe.tgz" \
        "${_c}-scir-p4r-boe_sha256:${_chksum}.tgz" && _warn "rename failed" && return 1
 
@@ -4842,7 +4891,7 @@ build_BoE_tarball()
 
   [[ ! -f ../"${1}-scir-p4r-boe.tgz" ]] && _say "abandoning tarball" && return 1
 
-  ! tar cfz ../"${1}-scir-p4r-boe.tgz" --exclude="*scir-p4r-boe*.tgz*" -C .. "${1}"/ && \
+  ! tar hcfz ../"${1}-scir-p4r-boe.tgz" --exclude="*scir-p4r-boe*.tgz*" -C .. "${1}"/ && \
     _warn "tar failed" && _rc=1;
 
   ! mv ../"${1}-scir-p4r-boe.tgz" . && \
@@ -4932,6 +4981,10 @@ check_scir_files()
               "${1}_scir.html" \
               "${1}"_job_*.json
   do
+    # __SBOM__ projects do not have a _job_ file
+    #
+    [[ ${_fil} =~ _job_ ]] && [[ "${dependency_type}" == "${__SBOM__}" ]] && continue
+
     [ ! -f "${_fil}" ] &&
       _err "required file, ${_fil}: not found for ${1}" &&
       _rc=1;
@@ -4952,7 +5005,7 @@ do_runtime_localizations()
   readonly _MITRHC="${_LOCAL_MITRHC:-mitre/hipcheck:latest}"
 
   _LOCAL_LANG="${_LOCAL_LANG:-en}"
-  _LOCAL_CRITERIA_DESC="${_LOCAL_CRITERIA_DESC:=reportWriter_criteria_desc.lib.sh.${_LOCAL_LANG}}"
+  _LOCAL_CRITERIA_DESC="${_LOCAL_CRITERIA_DESC:-reportWriter_criteria_desc.lib.sh.${_LOCAL_LANG}}"
 
   ! [[ ${_LOCAL_CRITERIA_DESC:0:1} == '/' ]] && _LOCAL_CRITERIA_DESC="${_OSSSCIRsettings}/scir-oss/${_LOCAL_CRITERIA_DESC}"
 
@@ -5043,6 +5096,11 @@ check_runtime()
     [[ ! -r "${_sp}" ]] && _err "can't find path/file for ${!_sp}=${_sp}" && _rc=1
   done
 
+  for _sp in _PRIMARY_BLACKLIST _SECONDARY_BLACKLIST _TERTIARY_BLACKLIST
+  do
+    [[ ${_sp} != "${_NULL_BLACKLIST_}" ]] && _info "env setting ${!_sp}='${_sp}'"
+  done
+
   #
   # made sure these are all readable by container processes, error off if otherwise
   #
@@ -5101,7 +5159,7 @@ check_runtime()
   # shellcheck disable=2043
   for eVar in GITHUB_AUTH_TOKEN
   do
-    if [[ -z "${!eVar}" ]]; then
+    ! ${BoEonly} && if [[ -z "${!eVar}" ]]; then
       _err "required env variable, ${eVar}: not set"
       _rc=1
     fi
@@ -5421,7 +5479,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_ID}",
-   "value": "Primary: $(_project_dep "${component}" "${__component_prjs}" | tr -d '\n\r')<br/>Secondary and tertiary: $(_project_dep --subs "${component}" "${__component_prjs}" | tr -d '\n\r')",
+   "value": "Primary: $(_project_dep "${component}" "${__component_prjs}" | tr -d '\n\r')<br/>Secondary: $(_project_dep --sec "${component}" "${__component_prjs}" | tr -d '\n\r')<br/>Tertiary and greater (Max search depth realized $(_max_project_dep "${__component_prjs}")): $(_project_dep --ter "${component}" "${__component_prjs}" | tr -d '\n\r')",
    "label": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_LABEL}",
    "description": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_DESC}",
    "risk": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_RISK}"
@@ -5679,6 +5737,10 @@ __main__()
 
   build_caches
 
+  #
+  # TODO: perform an equiv check if an SBOM is materially newer
+  #       than an existing SBOM (e.g., using jqdiff.sh tool)
+  #
   ! ${protectNoUpdate} && [ -s "${__component_prds}" ] && {
     __jobStatus="$(_phylum_jobStatus "${dependency_src}" "${__component_prds}")";
     _phylum_jobId_BHDT="true"
