@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250331a (branch: publicRelease)"
+readonly _version="pubRel 250404a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -44,7 +44,7 @@ _OSSSCIRsettings=${_OSSSCIRsettings:-"/vagrant/scir-oss/settings"}
 _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
 _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
 _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
-_OSSSCIRrepoResolveDB="${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv"
+[[ -f "${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv" ]] && _OSSSCIRrepoResolveDB="${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv"
 _CAStoreVolume=
 _CAStoreDocker=
 
@@ -2038,11 +2038,12 @@ _vul_check()
   #
   # see what Phylum scorecard reports
   #_c="$(jq -r 'def mywr: ("<a href=https://google.com>" + . + "</a>"); .issues[]|select(.riskType=="vulnerabilities")|.impact' "${1}" | sort | uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g')"
-  _c="$(jq -r '.[]|select(.riskType=="vulnerabilities")|.impact' "${1}" | sort | uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g')"
+  _c="$(jq -r '.[]|select(.riskType=="vulnerabilities")|.impact' "${1}" | grep -E '(crit|high|low|med)'|sed 's/low/zlow/;'| sort | uniq -c | sort  -k1.9 | sed 's/zlow/low/;' | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g')";
+#  _c="$(jq -r '.[]|select(.riskType=="vulnerabilities")|.impact' "${1}" | sort | uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g')"
   _r=" and detected vuls from other dependencies identified potentially: ${_c}"
 
-  _crits="$(jq -r '.[]|select(.riskType=="vulnerabilities" and .impact=="critical")|.tag' "${1}" |sort|uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g;s/ [CHMI]V/ /g')"
-  _w=" with criticals being ${__REDFLAG__}${_crits}"
+  _crits="$(jq -r '.[]|select(.riskType=="vulnerabilities" and .impact=="critical")|.tag' "${1}" |sort|uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g;s/ [CHMI]V[\-]/ /g')"
+  _w="<p/>criticals: ${__REDFLAG__}${_crits}"
 
   [[ -z "${_c}" ]] && _r=" and no dependent vul(s) detected"
   [[ -z "${_crits}" ]] && _w=""
@@ -4746,8 +4747,28 @@ consolidate_issues()
   local _liseq
   local _site
   local _id
+  local __ghapiFiles
+  local __phdepFiles
+  local __grypeFiles
 
   cp /dev/null "${3}"
+
+  #
+  # speedup
+  #
+  _say -n "gather issue files..."
+  __ghapiFiles=$(mktemp -u -p . -t ghapi.XXXXXXXXXX) &&
+    find . -name \*_ghapi.json -print0 > "${__ghapiFiles}"
+
+  _say -n " ..."
+  __phdepFiles=$(mktemp -u -p . -t phdep.XXXXXXXXXX) &&
+    find . \( -name \*_dep_prds.json -o -name \*deps.json \) -print0 > "${__phdepFiles}"
+
+  _say -n " ..."
+  __grypeFiles=$(mktemp -u -p . -t grype.XXXXXXXXXX) &&
+    find . \( -name \*_sbom_grype.json \) -print0 > "${__grypeFiles}"
+  _say "OK"
+
 
   for __risk__ in "vulnerabilities" "maliciousCodeRisk" "engineeringRisk" "licenseRisk" "authorsRisk"
   do #{
@@ -4758,7 +4779,7 @@ consolidate_issues()
     # before the slurp below ensures there is an .issues[]
     # key in the event the key is not present in the json
     #
-    [[ "${__risk__}" == "licenseRisk" ]] && _liseq=0 && \
+    [[ "${__risk__}" == "licenseRisk" ]] && _say "collecting copy-left license issues..." && _liseq=0 && \
       while read -r __grepo; read -r __lic
       do
         ((_liseq++));
@@ -4787,15 +4808,20 @@ consolidate_issues()
     "riskType": "licenseRisk"
   }
 _MYLICEOF
-      done < <(find . -name \*_ghapi.json -print0 | \
-        xargs -0 jq -r '.git_url,.license.spdx_id' ) \
+      done < <(xargs -a "${__ghapiFiles}" -0 jq -r '.git_url,.license.spdx_id' ) \
       | jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
+    #
+    # TODO: test if __SBOM__ before this find and __PHYLUM__ for the next find
+    #
+    [[ "${__risk__}" == "vulnerabilities" ]] && _say "collecting grype vulnerabilities..." && \
+      xargs -a "${__grypeFiles}" -0 \
+        jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
+
     # jq's arg _risk in quotes is NOT to be a shell expansion
     # false positive https://github.com/koalaman/shellcheck/issues/1160
     #
     # shellcheck disable=2016
-    find . \( -name \*_dep_prds.json -o -name \*deps.json \) -print0 | \
-      xargs -0 \
+    _say "collecting Phylum ${__risk__} issues..." && xargs -a "${__phdepFiles}" -0 \
       jq -r --arg _risk "${__risk__}" '
         .
         | if (.issues) then . else . + {"issues": []} end
@@ -4805,6 +4831,8 @@ _MYLICEOF
       ' | \
           jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
   done #}
+
+  rm -f "${__ghapiFiles}" "${__phdepFiles}" "${__grypeFiles}"
 
   return 0
 }
@@ -4846,7 +4874,7 @@ _do_issues_reports()
         map("<tr><td>" + (.title|@html) + "</td><td>" + (.tag|@html) + "</td><td>" + (.description|@html)  + "</td></tr>")|["<h2>" + $_label + " " + $_risk + "</h2><table><tr><th>Package</th><th>Impact</th><th>Description</th></tr>"] + . + ["</table>"] |
         .[]
       ' | \
-      sed 's/\\/\&#92;/g;s^### Overview^<h4>Overview</h4>^g;s^### Proof of Concept^<h4>Proof of Concept</h4>^g;s^### Importance^<h4>Importance</h4>^g;s^### Description^<h4>Description</h4>^g;s^### Summary^<h4>Summary</h4>^g;s^### Impact^<h4>Impact</h4>^g;s^###  Affected Configuration^<h4>Affected Configuration</h4>^g;s^### Patches^<h4>Patches</h4>^g;s^### Workarounds^<h4>Workarounds</h4>^g;s^### For more information^<h4>For more information</h4>^g;s^### Recommendation^<h4>Recommendation</h4>^g;s^### References^<h4>References</h4>^g;s^\*\*CVE\*\*:^<h4>CVE:</h4>^g;s^\*\*CVSS\*\*:^<b>CVSS:</b>^g;' >> "${2}_vulmalrep.html"
+      sed 's/\\/\&#92;/g;s^### Overview^<h4>Overview</h4>^g;s^### Proof of Concept^<h4>Proof of Concept</h4>^g;s^### Importance^<h4>Importance</h4>^g;s^### Description^<h4>Description</h4>^g;s^### Summary^<h4>Summary</h4>^g;s^### Impact^<h4>Impact</h4>^g;s^###  Affected Configuration^<h4>Affected Configuration</h4>^g;s^### Patches^<h4>Patches</h4>^g;s^### Workarounds^<h4>Workarounds</h4>^g;s^### For more information^<h4>For more information</h4>^g;s^### Recommendation^<h4>Recommendation</h4>^g;s^### References^<h4>References</h4>^g;s^\*\*CVE\*\*:^<h4>CVE:</h4>^g;s^\*\*\([[:print:]].*\)\*\*^<b>\1</b>^g;s^:__BR__:^<br/>^g;' >> "${2}_vulmalrep.html"
   done #}
 
   return 0
@@ -5051,7 +5079,7 @@ check_runtime()
       _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
       _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
       _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
-      _OSSSCIRrepoResolveDB="${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv"
+      [[ -f "${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv" ]] && _OSSSCIRrepoResolveDB="${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv"
     fi
   }
 
@@ -5062,7 +5090,7 @@ check_runtime()
   #
   # the binaries
   #
-  for cmd in bc jq curl docker base64 phylum iconv shuf sha256sum "${_OSSFCS}"
+  for cmd in ps pgrep bc jq curl docker base64 phylum iconv shuf sha256sum "${_OSSFCS}"
   do
     [ -z "$(command -v "${cmd}")" ] &&
       _err "required command, ${cmd}: not found in path or not installed" &&
@@ -5093,7 +5121,7 @@ check_runtime()
   for _sp in _MITRHCconfig _MITRHCscripts _OSSSCIRlicenseDB _OSSSCIRrepoResolveDB
   do
     _info "config setting ${!_sp}=${_sp}"
-    [[ ! -r "${_sp}" ]] && _err "can't find path/file for ${!_sp}=${_sp}" && _rc=1
+    [[ -v ${!_sp} ]] && [[ ! -r "${_sp}" ]] && _err "can't find path/file for ${!_sp}=${_sp}" && _rc=1
   done
 
   for _sp in _PRIMARY_BLACKLIST _SECONDARY_BLACKLIST _TERTIARY_BLACKLIST
@@ -5109,7 +5137,7 @@ check_runtime()
   [[ (( $(find "${_MITRHCscripts}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod o+rx ${_MITRHCscripts}/" && _rc=1
   [[ (( $(find "${_MITRHCscripts}" -type f -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod o+r ${_MITRHCscripts}/*" && _rc=1
   [[ (( $(find "${_OSSSCIRlicenseDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRlicenseDB}" && _rc=1
-  [[ (( $(find "${_OSSSCIRrepoResolveDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRrepoResolveDB}" && _rc=1
+  [[ -v _OSSSCIRrepoResolveDB ]] && [[ (( $(find "${_OSSSCIRrepoResolveDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRrepoResolveDB}" && _rc=1
   #
   # grab version numbers for report metadata
   #

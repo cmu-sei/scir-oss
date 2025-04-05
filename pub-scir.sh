@@ -24,7 +24,7 @@
 # DM24-0786
 # 
  
-readonly _version="pubRel 250331a (branch: publicRelease)"
+readonly _version="pubRel 250404a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -488,7 +488,7 @@ check_runtime()
   case ${_hc} in
     401) _rc=1 && _err CONF_PAT: appears to be no good, refresh your Confluence PAT
          ;;
-    200) [ "$(jq -r '.spaces[0].key' "${_temp}")" = "null" ] && _rc=1 && _err "bad ${_thingy}: ${_spaceKey}"
+    200) [ "$(jq -r '.spaces[0].key' "${_temp}")" = "null" ] && _rc=1 && _err "bad ${_thingy}: ${_spaceKey} on ${_CONFSVR}"
          [ ! "$(jq -r '.spaces[0].key' "${_temp}")" = "null" ] && _say "confirmed ${_spaceKey} is available using your Confluence PAT"
          ;;
     000) _rc=1 && _err "_CONFSVR: '${_CONFSVR}' appears to be an invalid host"
