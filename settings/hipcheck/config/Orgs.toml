@@ -21,14 +21,14 @@
 
 # The strategy spec can be short, implicitly being affiliated with or
 # independent from all the orgs in the file.
-#
-# strategy = "independent"
+strategy = "none"
 
 # The strategy spec would alternatively look like this.
 # With this mode, you can more completely specify the orgs or countries
 # to include in the list, and mark whether we're rejecting those affiliated
 # with or independent from the selected org list.
-strategy_spec = { mode = "affiliated", list = ["country:China"] }
+#
+# strategy_spec = { mode = "affiliated", list = ["country:United States", "org:MITRE"] }
 
 
 #==============================================================================
@@ -146,6 +146,11 @@ country = "United States"
 [[orgs]]
 name = "MIT"
 hosts = ["mit.edu"]
+country = "United States"
+
+[[orgs]]
+name = "MITRE"
+hosts = ["mitre.org"]
 country = "United States"
 
 [[orgs]]

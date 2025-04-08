@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250404a (branch: publicRelease)"
+readonly _version="pubRel 250406a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -69,7 +69,7 @@ _CAStoreDocker=
 readonly _NULL_BLACKLIST_="__NULL_BLACKLIST__"
 _PRIMARY_BLACKLIST="${_PRIMARY_BLACKLIST:-${_NULL_BLACKLIST_}}"
 _SECONDARY_BLACKLIST="${_SECONDARY_BLACKLIST:-${_NULL_BLACKLIST_}}"
-_TERTIARY_BLACKLIST="${_TERTIARY_BLACKLIST:-${_NULL_BLACKLIST_}}"
+_TERTIARY_BLACKLIST="${_TERTIARY_BLACKLIST:-"pkg:npm|^npm:"}"
 
 # env var to check json files pulled via curl
 # mostly for debug purposes
@@ -154,8 +154,8 @@ mkdepdir()
   #       _folder="$(jq -j -r -n --arg fred "${1}" '($fred|@uri)')"
   #
   # for now '/' become '___' and all those chars
-  # in the '[]' below become '_'
-  echo "${1}" | sed 's^/^___^g;s/[*^~<>#@]/_/g'
+  # in the '[]' below become '_' sed ''
+  echo "${1}" | sed 's^https://github.com/^^g;s^/^___^g;s/[*^~<>#@]/_/g'
   return 0
 }
 
@@ -1461,7 +1461,7 @@ _cio_criteria()
 cat <<-_TBLHTMLEOF
 $(_confhtml_wrapper_start)
   $(_confhtml_table_start "CIO Criteria")
-      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" "Phylum_io:PHYscore"
+      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( true && echo "Phylum_io:PHYscore" )
       do
         _confhtml_tablerow_start "${_card/*:}"
         _rowname="${_card/:*}"
@@ -1506,7 +1506,7 @@ _p4_outlook()
 cat <<-_ALTHTMLEOF
 $(_confhtml_wrapper_start)
   $(_confhtml_table_start "P4 Outlook")
-      $(for _card in "Overall:P4score" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" "Phylum_io:PHYscore"
+      $(for _card in "Overall:P4score" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( true && echo "Phylum_io:PHYscore" )
       do
         _confhtml_tablerow_start "${_card/*:}"
         _rowname="${_card/:*}"
@@ -1552,7 +1552,7 @@ _summary_scores_criteria_tbl()
 cat <<-_WWWTBLEOF
 $(_wwwhtml_wrapper_start)
   $(_wwwhtml_table_start "Scores by Criteria" "col=${_cols}")
-      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" "Phylum_io:PHYscore"
+      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( true && echo "Phylum_io:PHYscore" )
       do
         # for wwwhtml table (and not confhtml table) skip __SECTION__
         [[ "${_card/*:}" == "__SECTION__" ]] && continue
@@ -2029,23 +2029,25 @@ _vul_check()
   #[[ "${_sc}" -le "0" ]] && _sr="No vuls found in primary component"
 
   if [ -s "${2}" ]; then
-    _sc="$(jq -r '.checks[]|select(.name=="Vulnerabilities")|[.score,"/10 as ",.reason]|@csv' "${2}")"
+    _sc="$(jq -r '.checks[]|select(.name=="Vulnerabilities")|[.score,"/10 as ",.reason," (open, known unfixed vulnerabilities)"]|@csv' "${2}")"
     _sc="$(_fotp "$(echo "${_sc}" | cut -d, -f1)" "${_SCthreshold}")${_sc}"
   else
     _sc="no insight from scorecard"
   fi
 
   #
-  # see what Phylum scorecard reports
-  #_c="$(jq -r 'def mywr: ("<a href=https://google.com>" + . + "</a>"); .issues[]|select(.riskType=="vulnerabilities")|.impact' "${1}" | sort | uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g')"
-  _c="$(jq -r '.[]|select(.riskType=="vulnerabilities")|.impact' "${1}" | grep -E '(crit|high|low|med)'|sed 's/low/zlow/;'| sort | uniq -c | sort  -k1.9 | sed 's/zlow/low/;' | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g')";
-#  _c="$(jq -r '.[]|select(.riskType=="vulnerabilities")|.impact' "${1}" | sort | uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g')"
-  _r=" and detected vuls from other dependencies identified potentially: ${_c}"
+  # see what Phylum and/or Grype scorecard reports (which can comprehend dependency issues)
+  _c="$(jq -r '.[]|select(.riskType=="vulnerabilities")|.impact' "${1}" |
+    grep -E '(crit|high|low|med)'|
+    sed 's/low/zlow/;'| sort | uniq -c | sort  -k1.9 |
+    sed 's/zlow/low/;' | sed 's/^[ \t]*//;s/[ \t]*$//' |
+    tr "\n" ";" | sed 's/;/; /g;s/; $//g')";
+  _r=".<p/>Other detected vuls including other dependencies identified potentially: ${_c}"
 
   _crits="$(jq -r '.[]|select(.riskType=="vulnerabilities" and .impact=="critical")|.tag' "${1}" |sort|uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g;s/ [CHMI]V[\-]/ /g')"
   _w="<p/>criticals: ${__REDFLAG__}${_crits}"
 
-  [[ -z "${_c}" ]] && _r=" and no dependent vul(s) detected"
+  [[ -z "${_c}" ]] && _r=". And no additional dependent vul(s) detected"
   [[ -z "${_crits}" ]] && _w=""
 
   echo "${_sc}${_r}${_w}" | sed 's/"//g;s/ ,/ /g;s^,/^/^g;'
@@ -3125,10 +3127,12 @@ _dig4subdep()
   _dep="$(cut -d, -f2 <<<"${_cmp}")"
 
   #
-  # TODO: fix/understand npm dependencies, this algorithm seemingly
+  # TODO/OBE: fix/understand npm dependencies, this algorithm seemingly
   #       goes on forever - just stick to two levels until this is
   #       undertstood
-  [[ "${_cmp}" =~ ^npm ]] && [ "${_lev}" -eq 2 ] && _warn --q "npm limit: found level ${_lev} skipping ${_cmp} returning..." && return
+  #       the default TERTIARY_BLACKLIST effectively does this better
+  #       users, though, can override this and likely get into a deep search
+  #[[ "${_cmp}" =~ ^npm ]] && [ "${_lev}" -eq 2 ] && _warn --q "npm limit: found level ${_lev} skipping ${_cmp} returning..." && return
 
 
   # form pkg name, _c, into for needed by
@@ -3467,7 +3471,7 @@ __phylum_deps()
   _say "OK"
 
   [ "$(find "${_file}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${_file} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "${_file} over ${_cache_days}(s) days old, consider rebuilding (-f deps)"
 
   _patchIfNeeded "${_file}"
 
@@ -3526,7 +3530,7 @@ __sbom_deps()
   _say "OK"
 
   [ "$(find "${_file}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${_file} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "${_file} over ${_cache_days}(s) days old, consider rebuilding (-f deps)"
 
   return
 }
@@ -3766,10 +3770,10 @@ _run_ghmeta()
     rm -f "${_joutput}.err"
 
   [ ! -s "${_joutput}" ] &&
-    _warn "gh api ${_joutput} is incomplete, consider rebuilding (-f)"
+    _warn "gh api ${_joutput} is incomplete, consider rebuilding (-f cards,meta)"
 
   [ "$(find "${_joutput}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "gh api ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "gh api ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f cards,meta)"
 
   return
 }
@@ -3806,10 +3810,10 @@ _run_criticality_score()
     rm -f "${_joutput}.err"
 
   [ ! -s "${_joutput}" ] &&
-    _warn "criticality score ${_joutput} is incomplete, consider rebuilding (-f)"
+    _warn "criticality score ${_joutput} is incomplete, consider rebuilding (-f cards,crit)"
 
   [ "$(find "${_joutput}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "criticality score ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "criticality score ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f cards,crit)"
 
   return
 }
@@ -3853,10 +3857,10 @@ _run_scorecard()
     rm -f "${_joutput}.err"
 
   [ ! -s "${_joutput}" ] &&
-    _warn "scorecard ${_joutput} is incomplete, consider rebuilding (-f)"
+    _warn "scorecard ${_joutput} is incomplete, consider rebuilding (-f cards,scard)"
 
   [ "$(find "${_joutput}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "scorecard ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "scorecard ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f cards,scard)"
 
   return
 }
@@ -3937,12 +3941,12 @@ _run_hipcheck()
       [ -s "${_toutput}" ] && _warn "json filter error, ${_toutput} not deleted"
 
   [ ! -s "${_joutput}" ] &&
-    _warn "hipcheck ${_joutput} is incomplete, consider rebuilding (-f)" &&
+    _warn "hipcheck ${_joutput} is incomplete, consider rebuilding (-f cards,hcheck)" &&
     [ -s "${_toutput}" ] &&
     _warn "hipcheck ${_toutput} failed, see file for hints"
 
   [ "$(find "${_joutput}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "hipcheck ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "hipcheck ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f cards,hcheck)"
 
   return
 }
@@ -4391,7 +4395,7 @@ _val_scorecard()
       [ "$(jq -r '.checks[]|[ .name,.score ] | @csv' "${_joutput}" | wc -l)" -lt 18 ] ||
       [ -n "$(jq -r '.checks[]|[ .name,.score ] | @csv' "${_joutput}" | grep -E -o "(,$)")" ];
     } &&
-     _warn "scorecard ${_joutput} failed, consider rebuilding (-f)" &&
+     _warn "scorecard ${_joutput} failed, consider rebuilding (-f scores)" &&
      jq -r '.checks[]|[ .name,.score ] | @csv' "${_joutput}" | wc -l &&
      jq -r '.checks[]|[ .name,.score ] | @csv' "${_joutput}" | grep -E "(,$)" &&
      echo /dev/null "${_joutput}"
@@ -4418,7 +4422,7 @@ _val_hipcheck()
       [ "$(jq -r '.recommendation.kind' "${_joutput}")" == "null" ] ||
       [ "$(jq -r '.rationale' "${_joutput}")" == "null" ];
     } &&
-    _warn "hipcheck ${_joutput} failed, consider rebuilding (-f)"
+    _warn "hipcheck ${_joutput} failed, consider rebuilding (-f scores)"
 
   return
 }
@@ -4569,7 +4573,7 @@ _phy_prj_cache()
   _say "OK"
 
   [ "$(find "${__phy_prjs}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${__phy_prjs} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "${__phy_prjs} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
 
   return
 }
@@ -4612,7 +4616,7 @@ build_caches()
   _say "OK"
 
   [ "$(find "${__ghhtml}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${__ghhtml} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "${__ghhtml} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
 
   #########
   # pre-cache api.github
@@ -4643,7 +4647,7 @@ build_caches()
   _say "OK"
 
   [ "$(find "${__ghrjson}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${__ghrjson} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "${__ghrjson} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
 
   #########
   # pre-cache countribor counts from api.github
@@ -4684,7 +4688,7 @@ build_caches()
   _say "OK"
 
   [ "$(find "${__ghrcontribjson}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${__ghrcontribjson} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "${__ghrcontribjson} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
 
   #########
   # pre-cache SBOM
@@ -4717,7 +4721,7 @@ build_caches()
   _say "OK"
 
   [ "$(find "${__ghrsbomjson}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${__ghrsbomjson} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "${__ghrsbomjson} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
 
   #########
   #
@@ -4740,6 +4744,112 @@ build_caches()
   return
 }
 
+_mk_grype_xform_pipeline()
+{
+cat <<-_GYXPIPELINEEOF > "${1}"
+jq -r 'if (.sbom) then .sbom else . end' "\${1}"| ${_GRYPEC} -o json | jq -r '
+.matches[]? |
+{
+  "title":(.artifact.purl+" version "+.matchDetails[0].found.versionConstraint),
+  "tag":((if (.vulnerability.severity?)
+          then
+            (if .vulnerability.severity | ascii_downcase == "critical" then "CV-"
+             elif .vulnerability.severity | ascii_downcase == "high" then "HV-"
+             elif .vulnerability.severity | ascii_downcase == "medium" then "MV-"
+             else "LV-" end)
+          else "UN-" end)+
+          .vulnerability.id),
+  "id":.artifact.purl,
+  "severity":( if (.vulnerability.severity?) then .vulnerability.severity | ascii_downcase else "Not Provided" end ),
+  "description":(
+          "### Overview\n\n"+(.vulnerability.description // "None Provided")+":__BR__:**Grype Data Source**: "+(.vulnerability.dataSource // "None Provided")+
+           "\n\n### Recommendation\n\nFix available in "+(if (.vulnerability.fix.versions|length > 0) then .vulnerability.fix.versions|join(", ") else "None Provided" end)+
+           "\n\n### References\n\n"+(if (.relatedVulnerabilities|length > 0) then .relatedVulnerabilities[].urls|join(":__BR__:") else "None Provided" end // "NO URL")+
+           "\n\n**CVE**: "+
+           ((if ((.vulnerability.id) and (.vulnerability.id | startswith ("CVE"))) then .vulnerability.id
+             else .relatedVulnerabilities[0].id // "None Provided" end))+
+             " - **CVSS**: "+(.vulnerability.cvss[0]?.metrics.baseScore|tostring)+
+             "\n"
+         ),
+  "details": {
+  "type":"vulnerability",
+  "cvss":.vulnerability.cvss[0]?.metrics.baseScore,
+  "cvss_vector":(if (.vulnerability.cvss|length >0) then [ .vulnerability.cvss[].vector ] | @csv
+                 else "None Provided" end)
+    },
+  "domain":"vulnerability",
+  "impact":( if (.vulnerability.severity?) then .vulnerability.severity | ascii_downcase else "Not Provided" end ),
+  "riskType":"vulnerabilities"
+}
+'
+_GYXPIPELINEEOF
+
+  return 0
+}
+
+#
+# runs grype on sbom files and transforms the generated
+# grype results to a json report format for scir-oss report
+#
+# \*_sbom.json --> \*_sbom_grype.json
+#
+# TODO: make this unify all \*_sbom.json files into a
+#       comprehensive grype report
+#
+grype_issues()
+{
+  local _seq
+  local _cmp
+  local _c
+  local _depdir
+  local __gyxform
+  local __gxpipeLine
+  local __rootSBOM
+
+  __gyxform=$(mktemp -u -p . -t gyxF.XXXXXXXXXX) && cp /dev/null "${__gyxform}"
+
+  __gxpipeLine="$(mktemp -u -p . -t gyxP.XXXXXXXXXX)"
+  _mk_grype_xform_pipeline "${__gxpipeLine}"
+
+  #
+  # operates like scorecards, runs off levels in prjs.csv
+  #
+  _seq='^[0-9]+,'
+  [[ ${grypeDepth} != "all" ]] && _seq="^($(seq --separator='|' 0 "${grypeDepth}")),"
+
+  # ^0, is special - always do it it's SBOM is known
+  IFS="," read -r _c __rootSBOM _m _o < "${__phy_prjs}"; unset _m _o
+  ! { [[ "${_c}" == "SBOM" ]] && [[ -s "${__rootSBOM}" ]]; } && _debug "no root SBOM for grype issues" && return
+
+  _say -n "running ${_GRYPEC} scan for ${1} from ${2} to level ${grypeDepth}..."
+
+  # does the _sbom_grype need to be built
+  { [[ "${__rootSBOM}" -nt "${1}_allIssues.json" ]] || [[ ! -s "${1}_sbom_grype.json" ]] ; } &&
+    bash "${__gxpipeLine}" "${__rootSBOM}" > "${__gyxform}" && _say -n "$(grep -c \"tag "${__gyxform}")"
+
+  while read -r _cmp;
+  do
+    _c="$(mkdepdir "${_cmp}")"
+    _depdir="subdeps.d/${_c}"
+    [[ ! -d "${_depdir}" ]] && _depdir="deps.d/${_c}" && [[ ! -d "${_depdir}" ]] && continue
+    [[ ! -f "${_depdir}/${_c}_ghapi_sbom.json" ]] && continue
+    # does the _sbom_grype need to be built
+    { [[ "${_depdir}/${_c}_ghapi_sbom.json" -nt "${1}_allIssues.json" ]] ; } &&
+      bash "${__gxpipeLine}" "${_depdir}/${_c}_ghapi_sbom.json" >> "${__gyxform}" &&
+      _say -n "." && continue
+    _say -n "^"
+  done < <(grep -E "${_seq}" "${2}" \
+          | grep github.com \
+          | cut -d, -f2)
+
+  mv "${__gyxform}" "${1}_sbom_grype.json"
+  rm -f "${__gxpipeLine}"
+
+  _say "$(grep -c \"tag "${1}_sbom_grype.json"), OK"
+
+  return 0
+}
+
 consolidate_issues()
 {
   local __grepo
@@ -4750,8 +4860,16 @@ consolidate_issues()
   local __ghapiFiles
   local __phdepFiles
   local __grypeFiles
+  local _doPhylum=false
 
   cp /dev/null "${3}"
+
+  # do only if grype is installed
+  [[ ! ${_grype_ver} == "unknown" ]] && {
+    { ${BFLAGS[issues]} || ${force_rebuild} ; } && cp /dev/null "${2}_sbom_grype.json"
+
+    grype_issues "${2}" "${4}"
+  }
 
   #
   # speedup
@@ -4760,13 +4878,13 @@ consolidate_issues()
   __ghapiFiles=$(mktemp -u -p . -t ghapi.XXXXXXXXXX) &&
     find . -name \*_ghapi.json -print0 > "${__ghapiFiles}"
 
-  _say -n " ..."
-  __phdepFiles=$(mktemp -u -p . -t phdep.XXXXXXXXXX) &&
-    find . \( -name \*_dep_prds.json -o -name \*deps.json \) -print0 > "${__phdepFiles}"
+  ! grep -q ^SBOM, "${__phy_prjs}" && { _say -n " ..."
+    __phdepFiles=$(mktemp -u -p . -t phdep.XXXXXXXXXX) && _doPhylum=true
+      find . \( -name \*_dep_prds.json -o -name \*deps.json \) -print0 > "${__phdepFiles}"; }
 
   _say -n " ..."
   __grypeFiles=$(mktemp -u -p . -t grype.XXXXXXXXXX) &&
-    find . \( -name \*_sbom_grype.json \) -print0 > "${__grypeFiles}"
+    find . -maxdepth 1 \( -name \*_sbom_grype.json \) -print0 > "${__grypeFiles}"
   _say "OK"
 
 
@@ -4821,7 +4939,7 @@ _MYLICEOF
     # false positive https://github.com/koalaman/shellcheck/issues/1160
     #
     # shellcheck disable=2016
-    _say "collecting Phylum ${__risk__} issues..." && xargs -a "${__phdepFiles}" -0 \
+    "${_doPhylum}" && _say "collecting Phylum ${__risk__} issues..." && xargs -a "${__phdepFiles}" -0 \
       jq -r --arg _risk "${__risk__}" '
         .
         | if (.issues) then . else . + {"issues": []} end
@@ -5031,6 +5149,7 @@ do_runtime_localizations()
   readonly _OSSFSC="${_LOCAL_OSSFSC:-gcr.io/openssf/scorecard:latest}"
   readonly _OSSFCS="${_LOCAL_OSSFCS:-${HOME}/go/bin/criticality_score}"
   readonly _MITRHC="${_LOCAL_MITRHC:-mitre/hipcheck:latest}"
+  readonly _GRYPEC="grype"
 
   _LOCAL_LANG="${_LOCAL_LANG:-en}"
   _LOCAL_CRITERIA_DESC="${_LOCAL_CRITERIA_DESC:-reportWriter_criteria_desc.lib.sh.${_LOCAL_LANG}}"
@@ -5164,6 +5283,12 @@ check_runtime()
 
   _ossf_critscorecard_ver="$(${_OSSFCS} -depsdev-disable https://github.com/ 2>&1 | grep criticality_score@ | cut -d@ -f2|cut -d/ -f1|sort|uniq)"
   [[ -z "${_ossf_critscorecard_ver}" ]] && _warn "could not determine OSSF/criticality_score version" && _ossf_critscorecard_ver="unknown"
+
+  # not required (yet)
+  _grype_ver=""
+  [[ -n "$(command -v "${_GRYPEC}")" ]] &&
+    _grype_ver="$({ "${_GRYPEC}" --version | cut -d\  -f2; "${_GRYPEC}" db status -o json | jq -r '"db",.schemaVersion,"built on",.built' ; } | tr '\n' ' ')"
+  [[ -z "${_grype_ver}" ]] && _warn "could not determine grype version (vul reports skipped)" && _grype_ver="unknown"
 
   #
   #
@@ -5696,7 +5821,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_METADATA_DEPTHS_ID}",
-   "value": "${dependencyDepth}, ${scoreDepth}",
+   "value": "$(_max_project_dep "${__component_prjs}"), ${scoreDepth}",
    "label": "${_LOCAL_METADATA_DEPTHS_LABEL}",
    "description": "${_LOCAL_METADATA_DEPTHS_DESC}",
    "risk": "${_LOCAL_METADATA_DEPTHS_RISK}"
@@ -5710,7 +5835,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_METADATA_CREDITS_ID}",
-   "value": "<a href='https://github.com/ossf/scorecard'>OSSF/Scorecard ${_ossf_scorecard_ver}</a>, <a href='https://github.com/ossf/criticality_score'>OSSF/Critical Score ${_ossf_critscorecard_ver}</a>, <a href='https://github.com/mitre/hipcheck'>MITRE Hipcheck ${_mitre_hipcheck_ver}</a>, <a href='https://phylum.io'>Phylum.io ${_phylum_ver}</a>",
+   "value": "<a href='https://github.com/ossf/scorecard'>OSSF/Scorecard ${_ossf_scorecard_ver}</a>, <a href='https://github.com/ossf/criticality_score'>OSSF/Critical Score ${_ossf_critscorecard_ver}</a>, <a href='https://github.com/mitre/hipcheck'>MITRE Hipcheck ${_mitre_hipcheck_ver}</a>, <a href='https://phylum.io'>Phylum.io ${_phylum_ver}</a>, <a href='https://github.com/anchore/grype'>grype ${_grype_ver}</a>",
    "label": "${_LOCAL_METADATA_CREDITS_LABEL}",
    "description": "${_LOCAL_METADATA_CREDITS_DESC}",
    "risk": "${_LOCAL_METADATA_CREDITS_RISK}"
@@ -5784,6 +5909,7 @@ __main__()
     }
   }
 
+  _say "checking dependencies..."
   _level=1
   ${BFLAGS[deps]} && component_dep_rebuild="true"
   { ${force_rebuild} || ${component_dep_rebuild} ||
@@ -5804,7 +5930,8 @@ __main__()
   #       to be automatic workaround is the -f subdeps flag
   #
   #        [ ! -s "${__component_prjs}".subs ]) &&
-  ${BFLAGS[subdeps]} && component_subdep_rebuild="true"
+_say "checking sub-dependencies..."
+${BFLAGS[subdeps]} && component_subdep_rebuild="true"
   { ${force_rebuild} || ${component_subdep_rebuild} ||
     [ ! -s "${__component_prjs}" ]; } &&
       _say "rebuilding links to ${component} sub-dependencies..." &&
@@ -5829,6 +5956,7 @@ __main__()
   #       that for now. need to implement
   #       may be that any *[sh].json is newer than _coalesce.csv
   #
+  _say "checking score cards..."
   { ${BFLAGS[cards]} || ${scorecard_rebuild} || ${force_rebuild} ||
     [ ! -d deps.d/ ]; } &&
       _say "rebuilding scorecards for ${component} dependencies..." &&
@@ -5839,17 +5967,17 @@ __main__()
   #       above resulted in a change
   #
   # shellcheck disable=2143
+  _say "checking for new scores..."
   [ -f "${component}_coalesce.csv" ] &&
-    [[ -n "$(find . -newer "${component}_coalesce.csv" -type f \
-        \( -path "*/deps.d/*[sh]c.json*" -o \
-           -path "*/subdeps.d/*[sh]c.json*" -o \
-           -path \*hc.txt \) \
-           -print | \
-        grep -v -E '(skip)')" ]] && \
-        _say "Detected updated/new scores" && newScores=true
+    find . -newer "${component}_coalesce.csv" -type f \
+      \( -path "*/deps.d/*[sh]c.json*" -o \
+         -path "*/subdeps.d/*[sh]c.json*" -o \
+         -path \*hc.txt \) \
+         -print | \
+      grep -q -v -E '(skip)' && \
+    _say "Detected updated/new scores" && newScores=true
 
-  ${BFLAGS[scores]} && newScores=true
-  { ${newScores} || ${force_rebuild} ||
+  { ${BFLAGS[scores]} || ${newScores} || ${force_rebuild} ||
     [ ! -d deps.d/ ] || [ ! -s "${component}_coalesce.csv" ]; } &&
       _say "validating scorecards for ${component} dependencies..." &&
       validate_scorecards "${__component_prjs}" "${scoreDepth}"
@@ -5884,10 +6012,11 @@ __main__()
   #      | wc -l) -gt 0 \
   #  ]] && echo out of date
   #
+  _say "checking for new issues..."
   { ${BFLAGS[issues]} || ${force_rebuild} ||
     [ ! -s "${component}_allIssues.json" ]; }  &&
       _say "consolidating issues for ${component}..." &&
-      consolidate_issues "all" "${component}" "${component}_allIssues.json"
+      consolidate_issues "all" "${component}" "${component}_allIssues.json" "${__component_prjs}"
 
   { [[ "${component}_allIssues.json" -nt "${component}_vulmalrep.html" ]] || "${do_reports}" ||
     [ ! -s "${component}_vulmalrep.html" ]; } &&
@@ -6073,6 +6202,7 @@ quiet="false"
 verbose="false"
 dependencyDepth="3"
 scoreDepth=0
+grypeDepth="${scoreDepth}"
 scoreTimeout=""
 
 component=
@@ -6118,7 +6248,7 @@ while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
     v) verbose="true" ;;
     B) build_BoE="true" ;;
     C) component="${OPTARG}" ;;
-    D) scoreDepth="${OPTARG}"
+    D) scoreDepth="${OPTARG}" && grypeDepth="${scoreDepth}"
        ! [[ ${scoreDepth} =~ ^[0-9]+$ ]] && \
          [[ ${scoreDepth} != "all" ]] && \
          _fatal "expecting a positive integer for scoreDepth (${scoreDepth})"
