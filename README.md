@@ -105,6 +105,7 @@ $ ./scir-oss.sh -h
   -f:  force rebuild (overrides -p) of all or specific(s) caches, scores, reports or other data
        comma separate being 'all', or one or more of: cards,caches,deps,subdeps,meta,crit,scard,hcheck,scores,issues,job
   -h:  this message (and exit)
+  -i:  sets the depth for vulnerability discoveries for SBOM project dependency sources (default: auto, top component only, #, 'all' (no limit))
   -l:  log output messages to file of the form 'run-YYYYMMDD-HHMMSS.log' in 'logs' folder
   -o:  build only the BoE (i.e., do nothing else but that, and exit. see -B)
   -p:  protect, no automatic updates (useful for reproducibility)
@@ -113,7 +114,7 @@ $ ./scir-oss.sh -h
   -v:  verbose, not quiet
   -B:  build body of evidence (.tgz) suitable for archive storage
   -C:  set local component name/project name (REQUIRED)
-  -D:  set depth on dependencies to run scorecards (default: 0, top component only, or 'all' (no limit))
+  -D:  set depth on dependencies to run scorecards (default: 0, top component only, #, or 'all' (no limit))
   -G:  set Github project site (REQUIRED)
   -L:  make one or more subreports and exit (default 'all')
   -O:  offline - do not use networking (some capabilities will be degraded) relies on cached data

@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250406a (branch: publicRelease)"
+readonly _version="pubRel 250410a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -82,19 +82,29 @@ _debugVerifyCurlJsons="${_debugVerifyCurlJsons:-false}"
 # simply utilities
 #
 
+err_report() {
+    _warn --q "Error on line (see .basherr in logs/) $1"
+}
+
+trap 'err_report $LINENO' ERR
+
 #
 # make sure to handle / process logfile
 #
 _cleanup_and_exit()
 {
+  [[ -s "${__logfil}.basherr" ]] && _warn "logs/${__logfil}.basherr: inspect for bash errors."
   _say "oss-p4/R done."
   [[   "${__logfil}" == "${__NULLLOG__}" ]] && rm -f "${__logfil}"
-  [[ ! "${__logfil}" == "${__NULLLOG__}" ]] && [[ -d logs/ ]] && [[ -f "${__logfil}" ]] && mv "${__logfil}" logs/
+  [[ ! "${__logfil}" == "${__NULLLOG__}" ]] && [[ -d logs/ ]] && [[ -f "${__logfil}" ]] && mv "${__logfil}" logs/ && mv -f "${__logfil}.basherr" logs/
+  [[ ! -s "logs/${__logfil}.basherr" ]] && rm -f "logs/${__logfil}.basherr"
 
   rm -f "${__RATELIMIT__}"
+  rm -f "${__RUNTIME__}"
   #
   # shellcheck disable=2164
   ! dirs -v |tail -1 | grep -q '^ 0' && popd >&"${_fdverbose}"
+  exec 7>&-
   exit "${1}"
 }
 
@@ -161,8 +171,8 @@ mkdepdir()
 
 # https://stackoverflow.com/questions/6250698/how-to-decode-url-encoded-string-in-shell
 # TODO: there may be better answers in the post, explore better
-#
-function urldecode() { local i="${*//+/ }"; echo -ne "${i//%/\\x}"; }
+#       yes - there is garbage out there, with embedded control chars
+function urldecode() { local i="${*//+/ }"; echo -ne "${i//%/\\x}" | tr -d '[:cntrl:]'; }
 
 #
 # OSS-P4/R report writer helpers
@@ -178,6 +188,7 @@ readonly __SECTION__="<hr style='border: 10px solid gray; border-radius: 5px'/>"
 readonly __NULLGH__=":owner/:repo"
 readonly __NULLPURI__=":eco:name:ver"
 __NULLLOG__="$(mktemp -u -p . -t nulllog.XXXXXXXXXX)"
+__RUNTIME__="$(mktemp -u -p . -t thisrun.XXXXXXXXXX)"
 readonly __NULLLOG__
 readonly __TIMEOUT__="300"
 readonly __SBOM__="SBOM"
@@ -754,29 +765,31 @@ _set_thresholds()
 
   # Scorecard
   #
-  _warn "Thresholds for OSSF Scorecard scores set at ${_SCthreshold}"
+  _info "Thresholds for OSSF Scorecard scores set at ${_SCthreshold}"
 
   #
   # Criticality Score
-  _warn "Threshold for OSSF Criticality Score set at ${_CSthreshold}"
+  _info "Threshold for OSSF Criticality Score set at ${_CSthreshold}"
 
   # Hipcheck
   #
 
   # Phylum
   #
-  _th="$(jq -r '.riskThresholdActions.total.threshold' "${3}")"
-  _msg="Thresholds for Phylum set in Phylum.io project account"
-  [[ "${_th}" == "null" ]] && _msg="Thresholds for Phylum package URI scores set to ${_PHthreshold}"
-  _warn "${_msg}"
+  "${_doPhylum}" && {
+    _th="$(jq -r '.riskThresholdActions.total.threshold' "${3}")"
+    _msg="Thresholds for Phylum set in Phylum.io project account"
+    [[ "${_th}" == "null" ]] && _msg="Thresholds for Phylum package URI scores set to ${_PHthreshold}"
+    _info "${_msg}"
+  }
 
   # OSS-P4/R
   #
-  _warn "Local cache tolerance set to ${_cache_days} days"
-  _warn "Days active tolerance set to ${__ACTIVEDAYS__} days"
-  _warn "Days for a new project set to ${__DAYSNEW__} days"
-  _warn "Contributors tolerance set to ${__CONTRIBCNT__} ids"
-  _warn "Some responses require manual investigation if necessary"
+  _info "Local cache tolerance set to ${_cache_days} days"
+  _info "Days active tolerance set to ${__ACTIVEDAYS__} days"
+  _info "Days for a new project set to ${__DAYSNEW__} days"
+  _info "Contributors tolerance set to ${__CONTRIBCNT__} ids"
+  _warn "Some responses may require manual investigation if necessary (look for 'manual')"
 
   return
 }
@@ -1107,11 +1120,11 @@ _compute_p4_scores()
   __phyJQ='jq_legacyPhylumScores'
   grep -s -q -E '(totalRiskScore|total_risk_score)' "${3}" || { __phyJQ='jq_newPhylumScores' && __phyVersion=", "; }
 
-  _say -n "PHY${__phyVersion}"
+  "${_doPhylum}" && _say -n "PHY${__phyVersion}"
 
   #
   # grab scores from Phylum.io checks
-  while IFS="=" read -r check score
+  "${_doPhylum}" && { while IFS="=" read -r check score
   do
     #
     # this is ONLY true (score should ne NaN) if the
@@ -1159,6 +1172,7 @@ _compute_p4_scores()
   # shellcheck disable=2086
   PFourProductScores[PHYscore]=$(_compute_wScore \
           PHYscore PHYcheckScores PHYcheckThresholds PHYcheckWeights ${PFourProductChecks[PHYscore]})
+  }
 
   _say -n "MY, "
 
@@ -1461,7 +1475,7 @@ _cio_criteria()
 cat <<-_TBLHTMLEOF
 $(_confhtml_wrapper_start)
   $(_confhtml_table_start "CIO Criteria")
-      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( true && echo "Phylum_io:PHYscore" )
+      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( "${_doPhylum}" && echo "Phylum_io:PHYscore" )
       do
         _confhtml_tablerow_start "${_card/*:}"
         _rowname="${_card/:*}"
@@ -1506,7 +1520,7 @@ _p4_outlook()
 cat <<-_ALTHTMLEOF
 $(_confhtml_wrapper_start)
   $(_confhtml_table_start "P4 Outlook")
-      $(for _card in "Overall:P4score" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( true && echo "Phylum_io:PHYscore" )
+      $(for _card in "Overall:P4score" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( "${_doPhylum}" && echo "Phylum_io:PHYscore" )
       do
         _confhtml_tablerow_start "${_card/*:}"
         _rowname="${_card/:*}"
@@ -1552,7 +1566,7 @@ _summary_scores_criteria_tbl()
 cat <<-_WWWTBLEOF
 $(_wwwhtml_wrapper_start)
   $(_wwwhtml_table_start "Scores by Criteria" "col=${_cols}")
-      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( true && echo "Phylum_io:PHYscore" )
+      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( "${_doPhylum}" && echo "Phylum_io:PHYscore" )
       do
         # for wwwhtml table (and not confhtml table) skip __SECTION__
         [[ "${_card/*:}" == "__SECTION__" ]] && continue
@@ -1955,11 +1969,12 @@ _license_risk()
   local _p
   local _pi
   local _r
+  local _ph
 
   _c="No restrictive license detected"
   # false positive check
   # shellcheck disable=2102
-  [[ -v licenseChecks[restrictive] ]] && _c="Detected $(_fotp "${MYcheckScores[ProjectRestrictiveLicense]}" "${MYcheckThresholds[ProjectRestrictiveLicense]}" gt)${MYcheckScores[ProjectRestrictiveLicense]} restrictive license(s) being: $(echo "${licenseChecks[restrictive]}"| tr ',' '\n' | sort | uniq | tr  '\n' ',' | sed 's/,$//g;s/,/, /g'). "
+  [[ -v licenseChecks[restrictive] ]] && _c="Detected $(_fotp "${MYcheckScores[ProjectRestrictiveLicense]}" "${MYcheckThresholds[ProjectRestrictiveLicense]}" gt)${MYcheckScores[ProjectRestrictiveLicense]} restrictive license(s) being: $(echo "${licenseChecks[restrictive]}"| tr ',' '\n' | sort | uniq | tr  '\n' ',' | sed 's/,$//g;s/,/, /g')"
 
   # false positive check ${__WARNING__}
   # shellcheck disable=2102
@@ -1973,8 +1988,12 @@ _license_risk()
   _r="${_p} and ${_pi} potentially reported from dependencies"
   { [[ "${_p}" =~ .*critical*. ]] || [[ "${_p}" =~ .*high*. ]]; } && _r="${__REDFLAG__}${_p}"
   #{ [[ "${_p}" == *critical\;* ]] || [[ "${_p}" == *high\;* ]]; } && _r="${__REDFLAG__}${_p}"
+  _ph=""
+  "${_doPhylum}" && {
+    _ph="Phylum reports ($(_fotp "${PHYcheckScores[license]}" "${PHYcheckThresholds[license]}")${PHYcheckScores[license]}): "
+  }
 
-  echo "${_c}<p/>Phylum reports ($(_fotp "${PHYcheckScores[license]}" "${PHYcheckThresholds[license]}")${PHYcheckScores[license]}): ${_r}"
+  echo "${_c}<p/>${_ph}${_r}"
 
   return
 }
@@ -2138,15 +2157,15 @@ _project_dep()
   {
     echo -n "Total found: ";
     # shellcheck disable=2126
-    _c="$(grep -c ${_mod} -E "(${_pat})" "${_f}")"; set +x
+    _c="$(grep -c ${_mod} -E "(${_pat})" "${_f}")";
     echo "$(_fotp --warnFlag "${_c}" "0")${_c}"
     echo -n ", dependencies pulled: ";
     # shellcheck disable=2126
-    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep -c "${_found}")"; set +x
+    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep -c "${_found}")";
     echo "$(_fotp --warnFlag "${_c}" "0")${_c}"
     echo -n ", dependencies unknown: ";
     # shellcheck disable=2126
-    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep -c ",404")"; set +x
+    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep -c ",404")";
     echo "$(_fotp --warnFlag "${_c}" "1" "ge")${_c}"
   }
 
@@ -2433,7 +2452,7 @@ _badactors()
 
   local _score
   local _phmsg
-  if [ -s "${1}" ]; then
+  "${_doPhylum}" && if [ -s "${1}" ]; then
     _score="$( jq -r '.riskScores.author' "${1}" )"
     #
     # account for legacy and new Phylum json format
@@ -3118,7 +3137,7 @@ _dig4subdep()
       _say -n "${_lev}";
       return;
     else
-      _warn "dependency depth limit '(-d ${dependencyDepth})': skipped deeper dependencies...";
+      _info "dependency depth limit '(-d ${dependencyDepth})': skipped deeper dependencies...";
       _subdepWarningLimit="true";
       return;
     fi;
@@ -4275,7 +4294,7 @@ build_scorecards()
     echo "${$}" | __police_scorecards "${$}" "${scoreTimeout}" "${_mytty/\/dev\/}" &
     __policePID=$! ;
 
-    _warn "Policing for potentially stalled scoring containers on ${_mytty/\/dev\/} (see: -W to change)" ;
+    _info "Policing for potentially stalled scoring containers on ${_mytty/\/dev\/} (see: -W to change)" ;
   }
 
     while :; do #{
@@ -4815,13 +4834,13 @@ grype_issues()
   # operates like scorecards, runs off levels in prjs.csv
   #
   _seq='^[0-9]+,'
-  [[ ${grypeDepth} != "all" ]] && _seq="^($(seq --separator='|' 0 "${grypeDepth}")),"
+  [[ ${issueDepth} != "all" ]] && _seq="^($(seq --separator='|' 0 "${issueDepth}")),"
 
   # ^0, is special - always do it it's SBOM is known
   IFS="," read -r _c __rootSBOM _m _o < "${__phy_prjs}"; unset _m _o
   ! { [[ "${_c}" == "SBOM" ]] && [[ -s "${__rootSBOM}" ]]; } && _debug "no root SBOM for grype issues" && return
 
-  _say -n "running ${_GRYPEC} scan for ${1} from ${2} to level ${grypeDepth}..."
+  _say -n "running ${_GRYPEC} scan for ${1} from ${2} to level ${issueDepth}..."
 
   # does the _sbom_grype need to be built
   { [[ "${__rootSBOM}" -nt "${1}_allIssues.json" ]] || [[ ! -s "${1}_sbom_grype.json" ]] ; } &&
@@ -4860,7 +4879,6 @@ consolidate_issues()
   local __ghapiFiles
   local __phdepFiles
   local __grypeFiles
-  local _doPhylum=false
 
   cp /dev/null "${3}"
 
@@ -4879,7 +4897,7 @@ consolidate_issues()
     find . -name \*_ghapi.json -print0 > "${__ghapiFiles}"
 
   ! grep -q ^SBOM, "${__phy_prjs}" && { _say -n " ..."
-    __phdepFiles=$(mktemp -u -p . -t phdep.XXXXXXXXXX) && _doPhylum=true
+    __phdepFiles=$(mktemp -u -p . -t phdep.XXXXXXXXXX)
       find . \( -name \*_dep_prds.json -o -name \*deps.json \) -print0 > "${__phdepFiles}"; }
 
   _say -n " ..."
@@ -5237,7 +5255,7 @@ check_runtime()
   done
 
   local -n _sp
-  for _sp in _MITRHCconfig _MITRHCscripts _OSSSCIRlicenseDB _OSSSCIRrepoResolveDB
+  for _sp in _OSSSCIRsettings _MITRHCconfig _MITRHCscripts _OSSSCIRlicenseDB _OSSSCIRrepoResolveDB
   do
     _info "config setting ${!_sp}=${_sp}"
     [[ -v ${!_sp} ]] && [[ ! -r "${_sp}" ]] && _err "can't find path/file for ${!_sp}=${_sp}" && _rc=1
@@ -5251,12 +5269,12 @@ check_runtime()
   #
   # made sure these are all readable by container processes, error off if otherwise
   #
-  [[ (( $(find "${_MITRHCconfig}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCconfig}, use chmod o+rx ${_MITRHCconfig}/" && _rc=1
-  [[ (( $(find "${_MITRHCconfig}" -type f -perm -o=r|wc -l) -lt 5 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCconfig}, use chmod o+r ${_MITRHCconfig}/*" && _rc=1
-  [[ (( $(find "${_MITRHCscripts}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod o+rx ${_MITRHCscripts}/" && _rc=1
-  [[ (( $(find "${_MITRHCscripts}" -type f -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod o+r ${_MITRHCscripts}/*" && _rc=1
-  [[ (( $(find "${_OSSSCIRlicenseDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRlicenseDB}" && _rc=1
-  [[ -v _OSSSCIRrepoResolveDB ]] && [[ (( $(find "${_OSSSCIRrepoResolveDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRrepoResolveDB}" && _rc=1
+  [[ (( $(find "${_MITRHCconfig}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCconfig}, use chmod go+rx ${_MITRHCconfig}/" && _rc=1
+  [[ (( $(find "${_MITRHCconfig}" -type f -perm -o=r|wc -l) -lt 5 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCconfig}, use chmod go+r ${_MITRHCconfig}/*" && _rc=1
+  [[ (( $(find "${_MITRHCscripts}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod go+rx ${_MITRHCscripts}/" && _rc=1
+  [[ (( $(find "${_MITRHCscripts}" -type f -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod go+r ${_MITRHCscripts}/*" && _rc=1
+  [[ (( $(find "${_OSSSCIRlicenseDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRlicenseDB}, use chmod go+r ${_OSSSCIRlicenseDB}" && _rc=1
+  [[ -v _OSSSCIRrepoResolveDB ]] && [[ (( $(find "${_OSSSCIRrepoResolveDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRrepoResolveDB}, use chmod go+r ${_OSSSCIRrepoResolveDB}" && _rc=1
   #
   # grab version numbers for report metadata
   #
@@ -5285,9 +5303,11 @@ check_runtime()
   [[ -z "${_ossf_critscorecard_ver}" ]] && _warn "could not determine OSSF/criticality_score version" && _ossf_critscorecard_ver="unknown"
 
   # not required (yet)
+  # grype appears to auto update when first run specifically for a check
+  # so ignore out of date errors at this step
   _grype_ver=""
   [[ -n "$(command -v "${_GRYPEC}")" ]] &&
-    _grype_ver="$({ "${_GRYPEC}" --version | cut -d\  -f2; "${_GRYPEC}" db status -o json | jq -r '"db",.schemaVersion,"built on",.built' ; } | tr '\n' ' ')"
+    _grype_ver="$({ "${_GRYPEC}" --version | cut -d\  -f2; GRYPE_DB_VALIDATE_AGE=false "${_GRYPEC}" db status -o json | jq -r '"db",.schemaVersion,"built on",.built' ; } | tr '\n' ' ')"
   [[ -z "${_grype_ver}" ]] && _warn "could not determine grype version (vul reports skipped)" && _grype_ver="unknown"
 
   #
@@ -5369,7 +5389,11 @@ _saveOff_json_scores()
     MYscore | HCscore)
       _tt="gt";
       ;;
-    CIOscore | SCscore | PHYscore)
+    CIOscore | SCscore)
+      _tt="le";
+      ;;
+    PHYscore)
+      ! "${_doPhylum}" && return 0
       _tt="le";
       ;;
     CSscore)
@@ -5539,6 +5563,7 @@ _compile_json_p4report()
    "description": "${_LOCAL_TYPOSQUATTING_RISK_DESC}",
    "risk": "${_LOCAL_TYPOSQUATTING_RISK_RISK}"
  },
+ $( "${_doPhylum}" && cat <<-_phylumeof
  {
    "id": "${_LOCAL_ENG_RISK_ID}",
    "value": "$(_eng_risk "${component}_allIssues.json")",
@@ -5553,6 +5578,8 @@ _compile_json_p4report()
    "description": "${_LOCAL_MALICIOUS_CODE_DESC}",
    "risk": "${_LOCAL_MALICIOUS_CODE_RISK}"
  },
+_phylumeof
+ )
  {
    "id": "${_LOCAL_VULN_CHECK_ID}",
    "value": "$(_vul_check "${component}_allIssues.json" "${_SCcard}")",
@@ -5611,7 +5638,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_SBOM_ID}",
-   "value": "$(_sbom_val "${__ghrsbomjson}")<br/>Language package mangers detected: $(_sbom_pkgs "${__component_prjs}")",
+   "value": "$(_sbom_val "${__ghrsbomjson}")<br/>Language package managers detected: $(_sbom_pkgs "${__component_prjs}")",
    "label": "${_LOCAL_SBOM_LABEL}",
    "description": "${_LOCAL_SBOM_DESC}",
    "risk": "${_LOCAL_SBOM_RISK}"
@@ -5807,7 +5834,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_METADATA_RUNTIME_ID}",
-   "value": "Approximately $(_thisRuntime "${__logfil}") minute(s) (this run), for a total of $(_totalRuntime 'run-*log')",
+   "value": "Approximately $(_thisRuntime "${__RUNTIME__}") minute(s) (this run), for a total of $(_totalRuntime 'run-*log')",
    "label": "${_LOCAL_METADATA_RUNTIME_LABEL}",
    "description": "${_LOCAL_METADATA_RUNTIME_DESC}",
    "risk": "${_LOCAL_METADATA_RUNTIME_RISK}"
@@ -5835,7 +5862,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_METADATA_CREDITS_ID}",
-   "value": "<a href='https://github.com/ossf/scorecard'>OSSF/Scorecard ${_ossf_scorecard_ver}</a>, <a href='https://github.com/ossf/criticality_score'>OSSF/Critical Score ${_ossf_critscorecard_ver}</a>, <a href='https://github.com/mitre/hipcheck'>MITRE Hipcheck ${_mitre_hipcheck_ver}</a>, <a href='https://phylum.io'>Phylum.io ${_phylum_ver}</a>, <a href='https://github.com/anchore/grype'>grype ${_grype_ver}</a>",
+   "value": "<a href='https://github.com/ossf/scorecard'>OSSF/Scorecard ${_ossf_scorecard_ver}</a>, <a href='https://github.com/ossf/criticality_score'>OSSF/Critical Score ${_ossf_critscorecard_ver}</a>, <a href='https://github.com/mitre/hipcheck'>MITRE Hipcheck ${_mitre_hipcheck_ver}</a>, $( "${_doPhylum}" && echo "<a href='https://phylum.io'>Phylum.io ${_phylum_ver}</a>, ")<a href='https://github.com/anchore/grype'>grype ${_grype_ver}</a>",
    "label": "${_LOCAL_METADATA_CREDITS_LABEL}",
    "description": "${_LOCAL_METADATA_CREDITS_DESC}",
    "risk": "${_LOCAL_METADATA_CREDITS_RISK}"
@@ -6091,7 +6118,7 @@ ${BFLAGS[subdeps]} && component_subdep_rebuild="true"
     fi;
   }
 
-  return
+  return 0
 }
 
 readonly _bldFlags="'all', or one or more of: cards,caches,deps,subdeps,meta,crit,scard,hcheck,scores,issues,job"
@@ -6197,12 +6224,13 @@ component_subdep_rebuild="false"
 scorecard_rebuild="false"
 newScores="false"
 
+_doPhylum="false"
 do_reports="false"
 quiet="false"
 verbose="false"
 dependencyDepth="3"
 scoreDepth=0
-grypeDepth="${scoreDepth}"
+issueDepth="auto"
 scoreTimeout=""
 
 component=
@@ -6216,8 +6244,9 @@ _sudo=""
 #
 # errors always go to stderr
 #
-_fderr=2
-_fdwarn=2
+exec 7>&2
+_fderr=7
+_fdwarn=7
 
 #
 # never send to stdout
@@ -6228,7 +6257,7 @@ __logfil="${__NULLLOG__}"
 
 _cmdline="${0} ${*}"
 
-while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
+while getopts "c:d:f:hi:lopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
   case $opt in
     c) _cache_days="${OPTARG}" ;;
     d) dependencyDepth="${OPTARG}"
@@ -6237,6 +6266,11 @@ while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
          _fatal "expecting a positive integer for dependencyDepth (${dependencyDepth})"
        ;;
     f) ! _set_bldFlags "${OPTARG}" && _fatal "build_flags: expecting ${_bldFlags}"
+       ;;
+    i) issueDepth="${OPTARG}"
+       ! [[ ${issueDepth} =~ ^[0-9]+$ ]] && \
+         [[ ${issueDepth} != "all" ]] && [[ ${issueDepth} != "auto" ]] && \
+         _fatal "expecting a positive integer for issue depth (${issueDepth})"
        ;;
     l) __logfil="run-$(date +%Y%m%d-%H%M%S).log" ;;
     o) BoEonly="true"; build_BoE="true" ;;
@@ -6248,7 +6282,7 @@ while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
     v) verbose="true" ;;
     B) build_BoE="true" ;;
     C) component="${OPTARG}" ;;
-    D) scoreDepth="${OPTARG}" && grypeDepth="${scoreDepth}"
+    D) scoreDepth="${OPTARG}"
        ! [[ ${scoreDepth} =~ ^[0-9]+$ ]] && \
          [[ ${scoreDepth} != "all" ]] && \
          _fatal "expecting a positive integer for scoreDepth (${scoreDepth})"
@@ -6281,6 +6315,7 @@ while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
            ;;
          phylum)
            dependency_type="${__PHYLUM__}"
+           _doPhylum="true"
            dependency_src="${dependency_src/:phylum/}"
            [[ "${dependency_src}" =~ : ]] && puri="${dependency_src}"
            ;;
@@ -6291,6 +6326,7 @@ while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
     U) puri="${OPTARG}"
        dependency_type="${__PHYLUM__}"
        dependency_src="${puri}"
+       _doPhylum="true"
        _warn "-U deprecated, please start to use '-P ${puri}:phylum'"
        ;;
     V) echo "Version: ${_version}" && _fatal "" ;;
@@ -6313,6 +6349,7 @@ while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
   -f:  force rebuild (overrides -p) of all or specific(s) caches, scores, reports or other data
        comma separate being ${_bldFlags}
   -h:  this message (and exit)
+  -i:  sets the depth for vulnerability discoveries for SBOM project dependency sources (default: ${issueDepth}, top component only, #, 'all' (no limit))
   -l:  log output messages to file of the form 'run-YYYYMMDD-HHMMSS.log' in 'logs' folder
   -o:  build only the BoE (i.e., do nothing else but that, and exit. see -B)
   -p:  protect, no automatic updates (useful for reproducibility)
@@ -6321,7 +6358,7 @@ while getopts "c:d:f:hlopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
   -v:  verbose, not quiet
   -B:  build body of evidence (.tgz) suitable for archive storage
   -C:  set local component name/project name (REQUIRED)
-  -D:  set depth on dependencies to run scorecards (default: ${scoreDepth}, top component only, or 'all' (no limit))
+  -D:  set depth on dependencies to run scorecards (default: ${scoreDepth}, top component only, #, or 'all' (no limit))
   -G:  set Github project site (REQUIRED)
   -L:  make one or more subreports and exit (default '${report_type}')
   -O:  offline - do not use networking (some capabilities will be degraded) relies on cached data
@@ -6361,10 +6398,11 @@ ${quiet} &&
 #
 # properly set up logfile if necessary
 #
-[[ -n "${__logfil}" ]] && \
+[[ -n "${__logfil}" ]] && [[ "${__logfil}" =~ ^run ]] && \
         __logger="tee -a ${__logfil}" && \
         date +%s > "${__logfil}" && \
-        _rp="$(realpath -e "${__logfil}")"
+        _rp="$(realpath -e "${__logfil}")" && \
+        cp /dev/null "${__logfil}.basherr" && exec 2>"${__logfil}.basherr"
 
 _say "cmdline: ${_cmdline}"
 
@@ -6389,6 +6427,8 @@ mkdir -p "${component}"
 _say "setting current working folder to ${component}"
 pushd "${component}" >&"${_fdverbose}" || _fatal "can't set working folder to ${component}"
 
+date +%s > "${__RUNTIME__}"
+
 #
 # since 'preMVP 240507a (branch: main)' tidy
 # up all logfiles to a logs folder, work
@@ -6400,16 +6440,20 @@ mkdir -p logs/
 #
 # this log file will be moved later in cleanup
 #
-[[ -n "${__logfil}" ]] && mv -f "${_rp}" "."
+[[ -n "${__logfil}" ]] && mv -f "${_rp}" "." && mv -f "${_rp}.basherr" "."
 
 #
 # move the sbom here to the working folder
 # TODO: only move/overwrite if what's specified is newer
 #
 [[ "${dependency_type}" == "${__SBOM__}" ]] && {
-  [[ "${dependency_src^^}" != "${__GITHUB__}" ]] && mv -i "${dependency_src}" .;
+  _msg="are declared to include transitive dependencies"
+  [[ ${issueDepth} == "auto" ]] && issueDepth=0
+  [[ "${dependency_src^^}" != "${__GITHUB__}" ]] && mv -i "${dependency_src}" ./ && 
+    _msg="are likely not to include transtive dependencies" && issueDepth=1
   dependency_src="$(basename "${dependency_src}")";
-  _warn "SBOM dependencies in '${dependency_src}' are WIP"
+  _info "SBOM dependencies in '${dependency_src}' ${_msg} - issue depth is ${issueDepth} (change with -i)"
+  unset _msg
 }
 
 #
