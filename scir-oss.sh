@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250410a (branch: publicRelease)"
+readonly _version="pubRel 250413a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -1468,37 +1468,61 @@ _cio_criteria()
   local _rowname
   local _label
   local _cols
+  local _wrapper_start
+  local _table_start
+  local _tablerow_start
+  local _tabledata_start
+  local _wrapper_end
+  local _table_end
+  local _tablerow_end
+  local _tabledata_end
+  local _preamble
 
   _cols=7
 
+  _preamble="_conf"
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --www ]] && _preamble="_www"
+    shift 1
+  done
+  _wrapper_start="${_preamble}html_wrapper_start"
+  _wrapper_end="${_preamble}html_wrapper_end"
+  _table_start="${_preamble}html_table_start"
+  _table_end="${_preamble}html_table_end"
+  _tablerow_start="${_preamble}html_tablerow_start"
+  _tablerow_end="${_preamble}html_tablerow_end"
+  _tabledata_start="${_preamble}html_tabledata_start"
+  _tabledata_end="${_preamble}html_tabledata_end"
+
   tblhtml_data=$(
 cat <<-_TBLHTMLEOF
-$(_confhtml_wrapper_start)
-  $(_confhtml_table_start "CIO Criteria")
+$(${_wrapper_start})
+  $(${_table_start} "CIO Criteria")
       $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( "${_doPhylum}" && echo "Phylum_io:PHYscore" )
       do
-        _confhtml_tablerow_start "${_card/*:}"
+        ${_tablerow_start} "${_card/*:}"
         _rowname="${_card/:*}"
         for _label in "${_rowname}" Security:CIOsecurityScores Integrity:CIOintegrityScores Dependencies:CIOdependencyScores Malicious_Actors:CIOmalActorsScores Long-Term_Support:CIOlongTermScores Suitability:CIOsuitabilityScores
         do
            [[ "${_card/*:}" == "__SECTION__" ]] && \
-             _confhtml_tabledata_start "${__SECTION__}" "col=${_cols}" && \
-             _confhtml_tabledata_end && \
-             _confhtml_tablerow_end && \
+             ${_tabledata_start} "${__SECTION__}" "col=${_cols}" && \
+             ${_tabledata_end} && \
+             ${_tablerow_end} && \
              continue 2
            if [[ -n "${_rowname}" ]]; then
-             _confhtml_tabledata_start "${_rowname/_/ }" && _rowname=
+             ${_tabledata_start} "${_rowname/_/ }" && _rowname=
            else
              unset -n _aarray; local -n _aarray; _aarray="${_label/*:}"
              local _colname="${_label/:*}"
-             _confhtml_tabledata_start "${_colname//_/ } (${_aarray[${_card/*:}]})" "bg=$(_rgb_score "${_aarray[${_card/*:}]}" "10.0")"
+             ${_tabledata_start} "${_colname//_/ } (${_aarray[${_card/*:}]})" "bg=$(_rgb_score "${_aarray[${_card/*:}]}" "10.0")"
            fi
-           _confhtml_tabledata_end
+           ${_tabledata_end}
         done
-        _confhtml_tablerow_end
+        ${_tablerow_end}
       done)
-  $(_confhtml_table_end)
-$(_confhtml_wrapper_end)
+  $(${_table_end})
+$(${_wrapper_end})
 _TBLHTMLEOF
 )
 
@@ -1513,37 +1537,61 @@ _p4_outlook()
   local _rowname
   local _label
   local _cols
+  local _wrapper_start
+  local _table_start
+  local _tablerow_start
+  local _tabledata_start
+  local _wrapper_end
+  local _table_end
+  local _tablerow_end
+  local _tabledata_end
+  local _preamble
 
   _cols=5
 
+  _preamble="_conf"
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --www ]] && _preamble="_www"
+    shift 1
+  done
+  _wrapper_start="${_preamble}html_wrapper_start"
+  _wrapper_end="${_preamble}html_wrapper_end"
+  _table_start="${_preamble}html_table_start"
+  _table_end="${_preamble}html_table_end"
+  _tablerow_start="${_preamble}html_tablerow_start"
+  _tablerow_end="${_preamble}html_tablerow_end"
+  _tabledata_start="${_preamble}html_tabledata_start"
+  _tabledata_end="${_preamble}html_tabledata_end"
+
   althtml_data=$(
 cat <<-_ALTHTMLEOF
-$(_confhtml_wrapper_start)
-  $(_confhtml_table_start "P4 Outlook")
+$(${_wrapper_start})
+  $(${_table_start} "P4 Outlook")
       $(for _card in "Overall:P4score" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( "${_doPhylum}" && echo "Phylum_io:PHYscore" )
       do
-        _confhtml_tablerow_start "${_card/*:}"
+        ${_tablerow_start} "${_card/*:}"
         _rowname="${_card/:*}"
         for _label in "${_rowname}" Project:PFourProjectScores Product:PFourProductScores Protection:PFourProtectionScores Policy:PFourPolicyScores
         do
            [[ "${_card/*:}" == "__SECTION__" ]] && \
-             _confhtml_tabledata_start "${__SECTION__}" "col=${_cols}" && \
-             _confhtml_tabledata_end && \
-             _confhtml_tablerow_end && \
+             ${_tabledata_start} "${__SECTION__}" "col=${_cols}" && \
+             ${_tabledata_end} && \
+             ${_tablerow_end} && \
              continue 2
            if [[ -n "${_rowname}" ]]; then
-             _confhtml_tabledata_start "${_rowname/_/ }" && _rowname=
+             ${_tabledata_start} "${_rowname/_/ }" && _rowname=
            else
              unset -n _aarray; local -n _aarray; _aarray="${_label/*:}"
              local _colname="${_label/:*}"
-             _confhtml_tabledata_start "${_colname//_/ } (${_aarray[${_card/*:}]})" "bg=$(_rgb_score "${_aarray[${_card/*:}]}" "10.0")"
+             ${_tabledata_start} "${_colname//_/ } (${_aarray[${_card/*:}]})" "bg=$(_rgb_score "${_aarray[${_card/*:}]}" "10.0")"
            fi
-           _confhtml_tabledata_end
+           ${_tabledata_end}
         done
-        _confhtml_tablerow_end
+        ${_tablerow_end}
       done)
-  $(_confhtml_table_end)
-$(_confhtml_wrapper_end)
+  $(${_table_end})
+$(${_wrapper_end})
 _ALTHTMLEOF
 )
 
@@ -5376,8 +5424,14 @@ check_runtime()
 
   return ${_rc}
 }
+_saveOff_json_Computed_scores()
+{
+  # TODO: determine what to save off
+  #
+  return 0
+}
 
-_saveOff_json_scores()
+_saveOff_json_Raw_scores()
 {
   local _card
   local _scrs
@@ -5434,6 +5488,57 @@ _saveOff_json_scores()
   return 0
 }
 
+#
+# inspired by https://github.com/MrMarble/termsvg/blob/master/scripts/update-filesize.sh
+#
+_compile_md_p4report()
+{
+  local _MDTABLE
+  local _col1
+  local _col2
+  local _col2clean
+  local id
+
+  read -r -d '' _MDTABLE << EOS
+  | OSS Project Report | Response |
+  |--------------------|:---------|\n
+EOS
+
+  while read -r id; do
+    IFS="|" read -r _col1 _col2 < <(jq -r --arg ID "${id}" '.reportWriter[]|select (.id == $ID)|[.label,.value]|join("|")' "${2}")
+
+    #
+    # handle special cases (keep this one)
+    [[ $id =~ Section___ ]] && _col2="____HRULE____"
+
+    _col2clean=$(sed "s^<ac:emoticon ac:name='warning'/>^(\!)^g;s^<ac:emoticon ac:name='cross'/>^(\x)^g;" <<<"${_col2}")
+
+    case "${id}" in
+      "${_LOCAL_OSSP4R_OUTLOOK_ID}" | "${_LOCAL_DODCIO_CRITERIA_ID}")
+        read -r _col2 < <(jq -r --arg ID "${id}" '.reportWriter[]|select (.id == $ID)|.wwwValue' "${2}")
+        _col2clean=$(sed -e 's^background-color:rgba([^;]*;^^g;' <<<"${_col2}")
+        ;;
+      "${_LOCAL_SUMMARIZED_SCORES_BY_CRITERIA_ID}")
+        ;;
+      *)
+        _col2clean=$(sed "s^ ac:name='tr' ^>____BREAK____<^g;s^<br/>^____BREAK____^g;s^<p/>^____BREAK____^g;" <<<"${_col2clean}")
+        # shellcheck disable=2001
+        _col2clean=$(sed -e 's/<[^>]*>//g;' <<<"${_col2clean}")
+        ;;
+    esac
+
+    _MDTABLE+="| ${_col1} | ${_col2clean} |\n"
+
+  done < <(jq -r '.reportWriter[]|.id' "${2}")
+
+  #
+  # last step - reinflate out allowable html tags and turn the newline token into real newlines
+  #
+  echo "${_MDTABLE}" | sed 's^\\n^\n^g' | sed 's^____BREAK____^<br>^g;s^____HRULE____^<hr>^g;' > "${1}_scir.md"
+
+  return 0
+}
+
 _compile_json_p4report()
 {
   _say "Compiling report..."
@@ -5475,6 +5580,7 @@ _compile_json_p4report()
  {
    "id": "${_LOCAL_OSSP4R_OUTLOOK_ID}",
    "value": "$(_p4_outlook "${_SCcard}" "${_HCcard}" "${__component_prds}" | sed 's/"/\\"/g' | tr -d '\n\r')",
+   "wwwValue": "$(_p4_outlook --www "${_SCcard}" "${_HCcard}" "${__component_prds}" | sed 's/"/\\"/g' | tr -d '\n\r')",
    "label": "${_LOCAL_OSSP4R_OUTLOOK_LABEL}",
    "description": "${_LOCAL_OSSP4R_OUTLOOK_DESC}",
    "risk": "${_LOCAL_OSSP4R_OUTLOOK_RISK}"
@@ -5482,6 +5588,7 @@ _compile_json_p4report()
  {
    "id": "${_LOCAL_DODCIO_CRITERIA_ID}",
    "value": "$(_cio_criteria "${_SCcard}" "${_HCcard}" "${__component_prds}" | sed 's/"/\\"/g' | tr -d '\n\r')",
+   "wwwValue": "$(_cio_criteria --www "${_SCcard}" "${_HCcard}" "${__component_prds}" | sed 's/"/\\"/g' | tr -d '\n\r')",
    "label": "${_LOCAL_DODCIO_CRITERIA_LABEL}",
    "description": "${_LOCAL_DODCIO_CRITERIA_DESC}",
    "risk": "${_LOCAL_DODCIO_CRITERIA_RISK}"
@@ -5877,11 +5984,17 @@ _phylumeof
  ],
  "rawScores": [
    {
-     "mycheck": [ $(_saveOff_json_scores "MYscore") ],
-     "criticalityScore": [ $(_saveOff_json_scores "CSscore" "${_CScard}") ],
-     "scorecard": [ $(_saveOff_json_scores "SCscore") ],
-     "hipcheck": [ $(_saveOff_json_scores "HCscore") ],
-     "phylum": [ $(_saveOff_json_scores "PHYscore") ]
+     "mycheck": [ $(_saveOff_json_Raw_scores "MYscore") ],
+     "criticalityScore": [ $(_saveOff_json_Raw_scores "CSscore" "${_CScard}") ],
+     "scorecard": [ $(_saveOff_json_Raw_scores "SCscore") ],
+     "hipcheck": [ $(_saveOff_json_Raw_scores "HCscore") ],
+     "phylum": [ $(_saveOff_json_Raw_scores "PHYscore") ]
+   }
+ ],
+ "computedScores": [
+   {
+     "ossp4r": [ $(_saveOff_json_Computed_scores "MYscore") ],
+     "stakeHolder": [ $(_saveOff_json_Computed_scores "MYscore") ]
    }
  ]
 }
@@ -6108,6 +6221,9 @@ ${BFLAGS[subdeps]} && component_subdep_rebuild="true"
       ["<table><tr><th>OSS Project Report</th><th>Response</th></tr>"] + . + ["</table>"] |
       .[]
       ' "${component}_scir.json" > "${component}_scir.html" && _rc="OK"
+    _say "${_rc}"
+    _rc="Failed"
+    _say -n "Generating ${component}_scir.md..." && _compile_md_p4report "${component}" "${component}_scir.json" && _rc="OK"
     _say "${_rc}"
   }
 
