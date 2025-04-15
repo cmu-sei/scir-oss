@@ -24,7 +24,7 @@
 # DM24-0786
 # 
  
-readonly _version="pubRel 250404a (branch: publicRelease)"
+readonly _version="pubRel 250415a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -493,7 +493,7 @@ check_runtime()
          ;;
     000) _rc=1 && _err "_CONFSVR: '${_CONFSVR}' appears to be an invalid host"
          ;;
-    *) _warn "confirmed ${_spaceKey} maybe available using your Confluence PAT"
+    *) _warn "got ${_hc}: un-confirmed ${_spaceKey} maybe available using your Confluence PAT on ${_CONFSVR}"
          ;;
   esac
 

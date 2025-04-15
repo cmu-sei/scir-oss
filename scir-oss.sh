@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250413a (branch: publicRelease)"
+readonly _version="pubRel 250415a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -3899,14 +3899,13 @@ _run_scorecard()
   { ${BFLAGS[scard]} || ${force_rebuild}; } &&
     cp /dev/null "${_joutput}"
 
-  # sudo redirect is fine here (SC2024)
   # _CAStoreDocker needs to word split (SC2086)
-  # shellcheck disable=2024,2086
+  # shellcheck disable=2086
   [ ! -s "${_joutput}" ] &&
     _prjurl="https://github.com/${1}" &&
     _say "running scorecard LIVE on ${_prjurl} to ${_joutput}" &&
     waitRateLimit "${_lowerLimit}" &&
-    ${_sudo} docker run --rm ${_CAStoreDocker} \
+    docker run --rm ${_CAStoreDocker} \
       -e SCORECARD_V6=true \
       -e "GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN}" "${_OSSFSC}" \
       --format=json --show-details \
@@ -3969,13 +3968,12 @@ _run_hipcheck()
   { ${BFLAGS[hcheck]} || ${force_rebuild}; } &&
     cp /dev/null "${_joutput}"
 
-  # sudo redirect is fine here (SC2024)
   # _CAStoreDocker, __MITRHCquiet, _MITRHCrepoCmd, _MITRHCjson need to word split (SC2086)
-  # shellcheck disable=2024,2086
+  # shellcheck disable=2086
   [ ! -s "${_joutput}" ] &&
     _say "running hipcheck on ${_prjurl} to ${_joutput}" &&
     waitRateLimit "${_lowerLimit}" &&
-    ${_sudo} docker run --rm ${_CAStoreDocker} \
+    docker run --rm ${_CAStoreDocker} \
       -v "${_MITRHCconfig}:/app/config" \
       -v "${_MITRHCscripts}:/app/scripts" \
       -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
@@ -3989,7 +3987,7 @@ _run_hipcheck()
         }
       } &&
     waitRateLimit "${_lowerLimit}" &&
-    ${_sudo} docker run --rm ${_CAStoreDocker} \
+    docker run --rm ${_CAStoreDocker} \
       -v "${_MITRHCconfig}:/app/config" \
       -v "${_MITRHCscripts}:/app/scripts" \
       -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
@@ -4300,7 +4298,7 @@ __police_scorecards()
     do
       [[ $(( EPOCHSECONDS - _start )) -ge _containerTimeout ]] &&
         _warn "killed ${_containerPID}/${_containerCID}: working on $(tr '\0' ' ' <"/proc/${_containerPID}/cmdline")" &&
-        ${_sudo} docker kill "${_containerCID}"
+        docker kill "${_containerCID}"
       sleep "${_politePolice}"
       grep State "/proc/${_scoreRunnerPID}/status" |grep -q stopped && _say "${_scoreRunnerPID} PAUSED breaking" && break
       _containerPID=$(pgrep -a -t "${_PIDtty}" -f "docker run" | grep "${_containerPID}" | awk '{ print $1 }')
@@ -5286,9 +5284,9 @@ check_runtime()
   # the docker images
   #
   rm -f ./scir-dimg.*
-  if ! ${_sudo} docker image ls > ./scir-dimg.${$} 2>&1; then
-    _warn "docker: sudo required see '$(realpath ./scir-dimg.${$})' for more details"
-    _sudo="sudo -E"
+  if ! docker image ls > ./scir-dimg.${$} 2>&1; then
+    _err "docker: sudo required see '$(realpath ./scir-dimg.${$})' for more details (e.g, sudo -E docker ...)"
+    _rc=1
   fi
 
   local -n dimg
@@ -5296,7 +5294,7 @@ check_runtime()
   do
     _info "config docker image ${!dimg}=${dimg}"
     local _dimgFile
-    _dimgFile=$(${_sudo} docker image ls ${dimg} | grep -E -v "REPOSITORY")
+    _dimgFile=$(docker image ls ${dimg} | grep -E -v "REPOSITORY")
     [ -z "${_dimgFile}" ] &&
       _err "required docker image, ${dimg}: not found" &&
       _rc=1
@@ -5326,10 +5324,10 @@ check_runtime()
   #
   # grab version numbers for report metadata
   #
-  _ossf_scorecard_ver="$(${_sudo} docker run --rm "${_OSSFSC}" version 2>&1 | grep GitVersion | cut -d: -f2 | sed 's/ //g')"
+  _ossf_scorecard_ver="$(docker run --rm "${_OSSFSC}" version 2>&1 | grep GitVersion | cut -d: -f2 | sed 's/ //g')"
   [[ -z "${_ossf_scorecard_ver}" ]] && _warn "could not determine OSSF/Scorecard version" && _ossf_scorecard_ver="unknown"
 
-  _mitre_hipcheck_ver="$(${_sudo} docker run --rm "${_MITRHC}" --version | cut -d\  -f2)"
+  _mitre_hipcheck_ver="$(docker run --rm "${_MITRHC}" --version | cut -d\  -f2)"
   [[ -z "${_mitre_hipcheck_ver}" ]] && _warn "could not determine MITRE Hipcheck version" && _mitre_hipcheck_ver="unknown"
   # assume latest
   _MITRHCquiet="--verbosity quiet"
@@ -6356,7 +6354,6 @@ gh_site="${__NULLGH__}"
 dependency_src=${component}
 dependency_type=
 
-_sudo=""
 #
 # errors always go to stderr
 #
