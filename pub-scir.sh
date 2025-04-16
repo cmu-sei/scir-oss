@@ -24,7 +24,7 @@
 # DM24-0786
 # 
  
-readonly _version="pubRel 250211a (branch: publicRelease)"
+readonly _version="pubRel 250415a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -34,18 +34,34 @@ readonly _version="pubRel 250211a (branch: publicRelease)"
 #
 # TODO: make this 'settings' folder path/name a command line arg
 #
-_PUBSCIRsettings="/vagrant/scir-oss/settings"
+_PUBSCIRsettings=${_PUBSCIRsettings:-"/vagrant/scir-oss/settings"}
 
 #
 # in bytes
 # 0 means no limit
 #
 readonly _CONFSVRNOLIMIT=0
-readonly _CONFSVRLIMIT="${CONFSVRLIMIT:=5242880}"
+readonly _CONFSVRLIMIT="${CONFSVRLIMIT:-5242880}"
 
 #
 # simply utilities
 #
+
+#
+# make sure to handle / process logfile
+#
+_cleanup_and_exit()
+{
+  _say "pub-p4/R done."
+
+  [[ -n "${__logfil}" ]] && mv -f "${__logfil}" "./logs/"
+  #
+  # shellcheck disable=2164
+  ! dirs -v |tail -1 | grep -q '^ 0' && popd >&"${_fdverbose}"
+
+  exit "${1}"
+}
+
 _say()
 {
   echo "${1}" "${2}" | ${__logger} >&"${_fdverbose}" && return
@@ -70,7 +86,7 @@ _err()
 _fatal()
 {
   [ -n "${*}" ] && echo FATAL: "${*}" | ${__logger} >&"${_fderr}"
-  exit 1
+  _cleanup_and_exit 1
 }
 
 _getyn()
@@ -110,7 +126,7 @@ _create_Conf_page()
   local _title
   local _parentId
 
-  _temp="$(mktemp)"
+  _temp="$(mktemp -u -p . -t creatPg.XXXXXXXXXX)"
   _parentTitle="$(jq -j -r -n --arg fred "${_ancestorTitle}" '($fred|@uri)')"
   _parentId="$(_find_Conf_pageByTitle "${_parentTitle}" "${_spaceKey}")"
 
@@ -124,10 +140,10 @@ _create_Conf_page()
     echo ""
     return 1
   else
+    [[ $(file "${_temp}") =~ gzip ]] && zcat < "${_temp}" > "${_temp}".x && mv "${_temp}".x "${_temp}"
     [ -n "$(jq -j -r '.statusCode' < "${_temp}" | sed 's/null//g')" ] &&
       _warn "$(jq -j -r '.message' < "${_temp}" ) see ${_temp}" && return 2
   fi
-
   jq -j -r '.id' < "${_temp}"
   rm -f "${_temp}"
 
@@ -258,7 +274,7 @@ _get_attachment_Conf_page()
   _suffix="${3}"
   [[ "${_suffix:0:1}" == '*' ]] && _suffix=""
 
-  _temp="$(mktemp)"
+  _temp="$(mktemp -u -p . -t getAttPg.XXXXXXXXXX)"
 
   curl -k --silent --request GET \
     --header "X-Atlassian-Token: nocheck" \
@@ -457,7 +473,7 @@ check_runtime()
   #
   # lastly, check the Confluence PAT and spaceKey for goodness
   #
-  _temp="$(mktemp)"
+  _temp="$(mktemp -u -p . -t ckRuntime.XXXXXXXXXX)"
   _type="global"
   _searchCriteria="spacekey%3A${_spaceKey}"
   _thingy="spacekey"
@@ -472,12 +488,12 @@ check_runtime()
   case ${_hc} in
     401) _rc=1 && _err CONF_PAT: appears to be no good, refresh your Confluence PAT
          ;;
-    200) [ "$(jq -r '.spaces[0].key' "${_temp}")" = "null" ] && _rc=1 && _err "bad ${_thingy}: ${_spaceKey}"
+    200) [ "$(jq -r '.spaces[0].key' "${_temp}")" = "null" ] && _rc=1 && _err "bad ${_thingy}: ${_spaceKey} on ${_CONFSVR}"
          [ ! "$(jq -r '.spaces[0].key' "${_temp}")" = "null" ] && _say "confirmed ${_spaceKey} is available using your Confluence PAT"
          ;;
     000) _rc=1 && _err "_CONFSVR: '${_CONFSVR}' appears to be an invalid host"
          ;;
-    *) _warn "confirmed ${_spaceKey} maybe available using your Confluence PAT"
+    *) _warn "got ${_hc}: un-confirmed ${_spaceKey} maybe available using your Confluence PAT on ${_CONFSVR}"
          ;;
   esac
 
@@ -605,7 +621,7 @@ if ! check_runtime; then _fatal "exiting due to missing runtime requirement(s)";
 ${recoverBOE} && [[ ! -d "${component}" ]] && mkdir -p "${component}" && _say "Recovery mode, using folder ${component}"
 
 _say "setting current working folder to ${component}"
-pushd "${component}" >&"${_fdwarn}" || _fatal "can't set working folder to ${component}"
+pushd "${component}" >&"${_fdverbose}" || _fatal "can't set working folder to ${component}"
 
 #
 # since 'preMVP 240507a (branch: main)' tidy
@@ -637,7 +653,7 @@ ${attachonly} && [[ -n "${attachment}" ]] && {
     fi;
     _say "done.";
     [[ -n "${__logfil}" ]] && mv -f "${__logfil}" "./logs/"
-    popd >&"${_fdwarn}" || exit
+    popd >&"${_fdverbose}" || exit
     exit 0;
   }
 
@@ -648,7 +664,7 @@ ${recoverBOE} && {
     fi;
     _say "done.";
     [[ -n "${__logfil}" ]] && mv -f "${__logfil}" "./logs/"
-    popd >&"${_fdwarn}" || exit
+    popd >&"${_fdverbose}" || exit
     exit 0;
   }
 
@@ -659,7 +675,7 @@ ${recoverBOE} && {
     fi;
     _say "done.";
     [[ -n "${__logfil}" ]] && mv -f "${__logfil}" "./logs/"
-    popd >&"${_fdwarn}" || exit
+    popd >&"${_fdverbose}" || exit
     exit 0;
   }
 
@@ -671,7 +687,7 @@ _say "now newVersion=${_newVersion}"
 _bodyValue="${component}_scir.html"
 _vumaValue="${component}_vulmalrep.html"
 
-_say "body is ${_bodyValue}"
+{ [[ ! -s "${_bodyValue}" ]] && _fatal "${_bodyValue}: missing/empty/corrupt abandoning."; } || _say "body is ${_bodyValue}"
 _say "vuls and mal is ${_vumaValue}"
 
 [ ! -s "${_vumaValue}" ] && _warn "no ${_vumaValue} file, using placeholder" && cp /dev/null "${_vumaValue}"
@@ -683,7 +699,7 @@ _say "vuls and mal is ${_vumaValue}"
 [[ ${_CONFSVRLIMIT} -gt ${_CONFSVRNOLIMIT} ]] && \
   if [[ $(( $(stat --printf="%s" "${_bodyValue}") + $(stat --printf="%s" "${_vumaValue}") )) -gt ${_CONFSVRLIMIT} ]]; then
     _warn "${_vumaValue} file is too large for ${_CONFSVR} being greater than ${_CONFSVRLIMIT} bytes, please attach using: '${0}' -l -v -C '${component}' -T '${_pageTitle}' -S '${_spaceKey}' -A '${_ancestorTitle}' -o -a '${_vumaValue}'"
-    _vumaValue="$(mktemp)"
+    _vumaValue="$(mktemp -u -p . -t confLimit.XXXXXXXXXX)"
     cp /dev/null "${_vumaValue}"
   fi
 
@@ -743,10 +759,5 @@ fi
     _fatal "attachment failed"
   fi
 
-_say "done."
-
-[[ -n "${__logfil}" ]] && mv -f "${__logfil}" "./logs/"
-popd >&"${_fdwarn}" || exit
-
-exit 0
+_cleanup_and_exit 0
 #}

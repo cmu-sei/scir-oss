@@ -1,9 +1,9 @@
 #!/bin/bash
 #
 # Open Source P4 Tool
-# 
+#
 # Copyright 2024 Carnegie Mellon University.
-# 
+#
 # NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
 # INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
 # UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
@@ -11,7 +11,7 @@
 # OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
 # MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
 # WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
-# 
+#
 # Licensed under a MIT-style license, please see license.txt or contact permission@sei.cmu.edu for full terms.
 #
 # [DISTRIBUTION STATEMENT A] This material has been approved for public
@@ -22,15 +22,15 @@
 # subject to its own license.
 #
 # DM24-0786
-# 
- 
+#
+
 #
 # to find main search down for __main__
 # bash entrypoint (bash script start) search down for __entrypoint__
-# bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal
+# bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250310a (branch: publicRelease)"
+readonly _version="pubRel 250415a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -40,12 +40,36 @@ readonly _version="pubRel 250310a (branch: publicRelease)"
 #
 # TODO: make this 'settings' folder path/name a command line arg
 #
-_OSSSCIRsettings="/vagrant/scir-oss/settings"
+_OSSSCIRsettings=${_OSSSCIRsettings:-"/vagrant/scir-oss/settings"}
 _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
 _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
 _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
+[[ -f "${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv" ]] && _OSSSCIRrepoResolveDB="${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv"
 _CAStoreVolume=
 _CAStoreDocker=
+
+#
+# experimental blacklists
+# blacklists are purl/pkg specs to ignore from dependency digging
+# this are implemented at three levels, primary, secondary, and
+# teritary (including beyond). the blacklist is a regex which is
+# used to ignore dependencies (i.e., referenceLocator)
+#
+# examples:
+# export _PRIMARY_BLACKLIST="pkg:githubactions|pkg:github"
+# export _SECONDARY_BLACKLIST="${_PRIMARY_BLACKLIST}|pkg:composer"
+# export _TERTIARY_BLACKLIST="${_SECONDARY_BLACKLIST}|pkg:npm"
+# idea: _TERTIARY_BLACKLIST="4/${_SECONDARY_BLACKLIST}|pkg:npm"
+#       to mean levels 4 and above
+# primary components excluded from dependency search are those matching
+#   githubactions and github; secondary components are the same with the
+#   addition of composer; and teritary and beyond ignores all those as
+#   well as npm.
+#
+readonly _NULL_BLACKLIST_="__NULL_BLACKLIST__"
+_PRIMARY_BLACKLIST="${_PRIMARY_BLACKLIST:-${_NULL_BLACKLIST_}}"
+_SECONDARY_BLACKLIST="${_SECONDARY_BLACKLIST:-${_NULL_BLACKLIST_}}"
+_TERTIARY_BLACKLIST="${_TERTIARY_BLACKLIST:-"pkg:npm|^npm:"}"
 
 # env var to check json files pulled via curl
 # mostly for debug purposes
@@ -58,19 +82,29 @@ _debugVerifyCurlJsons="${_debugVerifyCurlJsons:-false}"
 # simply utilities
 #
 
+err_report() {
+    _warn --q "Error on line (see .basherr in logs/) $1"
+}
+
+trap 'err_report $LINENO' ERR
+
 #
 # make sure to handle / process logfile
 #
 _cleanup_and_exit()
 {
-  _say "oss-p4/4 done."
+  [[ -s "${__logfil}.basherr" ]] && _warn "logs/${__logfil}.basherr: inspect for bash errors."
+  _say "oss-p4/R done."
   [[   "${__logfil}" == "${__NULLLOG__}" ]] && rm -f "${__logfil}"
-  [[ ! "${__logfil}" == "${__NULLLOG__}" ]] && [[ -f "${__logfil}" ]] && mv "${__logfil}" logs/
+  [[ ! "${__logfil}" == "${__NULLLOG__}" ]] && [[ -d logs/ ]] && [[ -f "${__logfil}" ]] && mv "${__logfil}" logs/ && mv -f "${__logfil}.basherr" logs/
+  [[ ! -s "logs/${__logfil}.basherr" ]] && rm -f "logs/${__logfil}.basherr"
 
   rm -f "${__RATELIMIT__}"
+  rm -f "${__RUNTIME__}"
   #
   # shellcheck disable=2164
-  ! dirs -v |tail -1 | grep -q '^ 0' && popd >&"${_fdwarn}"
+  ! dirs -v |tail -1 | grep -q '^ 0' && popd >&"${_fdverbose}"
+  exec 7>&-
   exit "${1}"
 }
 
@@ -87,7 +121,15 @@ _info()
 
 _warn()
 {
-  _HTMLcaveats+=("W: ${*}<br/>")
+  local _cav
+  _cav="true"
+
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --q ]] && _cav="false"
+    shift 1
+  done
+  "${_cav}" && _HTMLcaveats+=("W: ${*}<br/>")
   echo WARNING: "${*}" | ${__logger} >&"${_fdwarn}" && return
 }
 
@@ -103,12 +145,13 @@ _err()
 
 _fatal()
 {
+  _HTMLcaveats+=("F: ${*}<br/>")
   [ -n "${*}" ] && echo FATAL: "${*}" | ${__logger} >&"${_fderr}"
   _cleanup_and_exit 1
 }
 
 #
-# using package names from phylum results in 
+# using package names from phylum results in
 # bad string chars for unix files, ensure there
 # are no strange chars in the filename
 #
@@ -121,10 +164,15 @@ mkdepdir()
   #       _folder="$(jq -j -r -n --arg fred "${1}" '($fred|@uri)')"
   #
   # for now '/' become '___' and all those chars
-  # in the '[]' below become '_'
-  echo "${1}" | sed 's^/^___^g;s/[*^~<>#@]/_/g'
+  # in the '[]' below become '_' sed ''
+  echo "${1}" | sed 's^https://github.com/^^g;s^/^___^g;s/[*^~<>#@]/_/g'
   return 0
 }
+
+# https://stackoverflow.com/questions/6250698/how-to-decode-url-encoded-string-in-shell
+# TODO: there may be better answers in the post, explore better
+#       yes - there is garbage out there, with embedded control chars
+function urldecode() { local i="${*//+/ }"; echo -ne "${i//%/\\x}" | tr -d '[:cntrl:]'; }
 
 #
 # OSS-P4/R report writer helpers
@@ -139,9 +187,14 @@ readonly __SECTION__="<hr style='border: 10px solid gray; border-radius: 5px'/>"
 
 readonly __NULLGH__=":owner/:repo"
 readonly __NULLPURI__=":eco:name:ver"
-__NULLLOG__="$(mktemp -u -p .)"
+__NULLLOG__="$(mktemp -u -p . -t nulllog.XXXXXXXXXX)"
+__RUNTIME__="$(mktemp -u -p . -t thisrun.XXXXXXXXXX)"
 readonly __NULLLOG__
 readonly __TIMEOUT__="300"
+readonly __SBOM__="SBOM"
+readonly __PHYLUM__="PHYLUM"
+readonly __GITHUB__="GITHUB"
+readonly __NOASSERTION__="unknown"
 
 #readonly _fpdigitsRE='^[+-]?[0-9]+([.][0-9]+)?$'
 readonly _fpdigitsRE='^[+-]?[0-9]*([.][0-9]+)?$'
@@ -649,7 +702,6 @@ _fotp()
     shift 1
   done
 
-
   [[ "${1}" == "${__CHECKNOTIMPL__}" ]] && echo "${__WARNING__}" && return 1
   [[ "${1}" == "-1" ]] && echo "${__WARNING__}" && return 1
   [[ "${1}" == "${__NAN__}" ]] && echo "${__WARNING__}" && return 1
@@ -702,7 +754,7 @@ _as_of()
   local rpt
 
   now=$(date +%s)
-  rpt=$(stat --printf=%Y "${1}") 
+  rpt=$(stat --printf=%Y "${1}")
   echo "$(( (now-rpt) / 60 / 60 / 24 )) days ago"
   return
 }
@@ -713,29 +765,31 @@ _set_thresholds()
 
   # Scorecard
   #
-  _warn "Thresholds for OSSF Scorecard scores set at ${_SCthreshold}"
+  _info "Thresholds for OSSF Scorecard scores set at ${_SCthreshold}"
 
   #
   # Criticality Score
-  _warn "Threshold for OSSF Criticality Score set at ${_CSthreshold}"
+  _info "Threshold for OSSF Criticality Score set at ${_CSthreshold}"
 
   # Hipcheck
   #
 
   # Phylum
   #
-  _th="$(jq -r '.riskThresholdActions.total.threshold' "${3}")"
-  _msg="Thresholds for Phylum set in Phylum.io project account"
-  [[ "${_th}" == "null" ]] && _msg="Thresholds for Phylum package URI scores set to ${_PHthreshold}"
-  _warn "${_msg}"
+  "${_doPhylum}" && {
+    _th="$(jq -r '.riskThresholdActions.total.threshold' "${3}")"
+    _msg="Thresholds for Phylum set in Phylum.io project account"
+    [[ "${_th}" == "null" ]] && _msg="Thresholds for Phylum package URI scores set to ${_PHthreshold}"
+    _info "${_msg}"
+  }
 
   # OSS-P4/R
   #
-  _warn "Local cache tolerance set to ${_cache_days} days"
-  _warn "Days active tolerance set to ${__ACTIVEDAYS__} days"
-  _warn "Days for a new project set to ${__DAYSNEW__} days"
-  _warn "Contributors tolerance set to ${__CONTRIBCNT__} ids"
-  _warn "Some responses require manual investigation if necessary"
+  _info "Local cache tolerance set to ${_cache_days} days"
+  _info "Days active tolerance set to ${__ACTIVEDAYS__} days"
+  _info "Days for a new project set to ${__DAYSNEW__} days"
+  _info "Contributors tolerance set to ${__CONTRIBCNT__} ids"
+  _warn "Some responses may require manual investigation if necessary (look for 'manual')"
 
   return
 }
@@ -836,7 +890,7 @@ jq_legacyPhylumScores()
 {
   local __myphyc
 
-  __myphyc=$(mktemp -u -p .)
+  __myphyc=$(mktemp -u -p . -t legacyScores.XXXXXXXXXX)
 
   jq -r 'paths(scalars | true) as $p
     | [ ( [ $p[] | tostring ] | join(".") ), ( getpath($p) | tojson )] | join(": ")' \
@@ -995,7 +1049,7 @@ _compute_p4_scores()
       jq -r '.passing[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${2}" ; \
       jq -r '.failing[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${2}" ; \
       jq -r '.errored[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${2}" ; \
-    } | sed 's/[",]//g') 
+    } | sed 's/[",]//g')
 
     _HCrationale=$(jq -r '.rationale|@base64d' "${2}" |
       grep Recommendation -A 1 |
@@ -1066,11 +1120,11 @@ _compute_p4_scores()
   __phyJQ='jq_legacyPhylumScores'
   grep -s -q -E '(totalRiskScore|total_risk_score)' "${3}" || { __phyJQ='jq_newPhylumScores' && __phyVersion=", "; }
 
-  _say -n "PHY${__phyVersion}"
+  "${_doPhylum}" && _say -n "PHY${__phyVersion}"
 
   #
   # grab scores from Phylum.io checks
-  while IFS="=" read -r check score
+  "${_doPhylum}" && { while IFS="=" read -r check score
   do
     #
     # this is ONLY true (score should ne NaN) if the
@@ -1118,6 +1172,7 @@ _compute_p4_scores()
   # shellcheck disable=2086
   PFourProductScores[PHYscore]=$(_compute_wScore \
           PHYscore PHYcheckScores PHYcheckThresholds PHYcheckWeights ${PFourProductChecks[PHYscore]})
+  }
 
   _say -n "MY, "
 
@@ -1392,7 +1447,7 @@ _wwwhtml_tabledata_start()
     _v="${1/hdr=}";
     [[ -n ${_v} ]] && _beg="<th>";
   }
- 
+
   echo "${_beg}${_v}"
   return
 }
@@ -1413,37 +1468,61 @@ _cio_criteria()
   local _rowname
   local _label
   local _cols
+  local _wrapper_start
+  local _table_start
+  local _tablerow_start
+  local _tabledata_start
+  local _wrapper_end
+  local _table_end
+  local _tablerow_end
+  local _tabledata_end
+  local _preamble
 
   _cols=7
 
+  _preamble="_conf"
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --www ]] && _preamble="_www"
+    shift 1
+  done
+  _wrapper_start="${_preamble}html_wrapper_start"
+  _wrapper_end="${_preamble}html_wrapper_end"
+  _table_start="${_preamble}html_table_start"
+  _table_end="${_preamble}html_table_end"
+  _tablerow_start="${_preamble}html_tablerow_start"
+  _tablerow_end="${_preamble}html_tablerow_end"
+  _tabledata_start="${_preamble}html_tabledata_start"
+  _tabledata_end="${_preamble}html_tabledata_end"
+
   tblhtml_data=$(
 cat <<-_TBLHTMLEOF
-$(_confhtml_wrapper_start)
-  $(_confhtml_table_start "CIO Criteria")
-      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" "Phylum_io:PHYscore"
+$(${_wrapper_start})
+  $(${_table_start} "CIO Criteria")
+      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( "${_doPhylum}" && echo "Phylum_io:PHYscore" )
       do
-        _confhtml_tablerow_start "${_card/*:}"
+        ${_tablerow_start} "${_card/*:}"
         _rowname="${_card/:*}"
         for _label in "${_rowname}" Security:CIOsecurityScores Integrity:CIOintegrityScores Dependencies:CIOdependencyScores Malicious_Actors:CIOmalActorsScores Long-Term_Support:CIOlongTermScores Suitability:CIOsuitabilityScores
         do
            [[ "${_card/*:}" == "__SECTION__" ]] && \
-             _confhtml_tabledata_start "${__SECTION__}" "col=${_cols}" && \
-             _confhtml_tabledata_end && \
-             _confhtml_tablerow_end && \
+             ${_tabledata_start} "${__SECTION__}" "col=${_cols}" && \
+             ${_tabledata_end} && \
+             ${_tablerow_end} && \
              continue 2
            if [[ -n "${_rowname}" ]]; then
-             _confhtml_tabledata_start "${_rowname/_/ }" && _rowname=
+             ${_tabledata_start} "${_rowname/_/ }" && _rowname=
            else
              unset -n _aarray; local -n _aarray; _aarray="${_label/*:}"
              local _colname="${_label/:*}"
-             _confhtml_tabledata_start "${_colname//_/ } (${_aarray[${_card/*:}]})" "bg=$(_rgb_score "${_aarray[${_card/*:}]}" "10.0")"
+             ${_tabledata_start} "${_colname//_/ } (${_aarray[${_card/*:}]})" "bg=$(_rgb_score "${_aarray[${_card/*:}]}" "10.0")"
            fi
-           _confhtml_tabledata_end
+           ${_tabledata_end}
         done
-        _confhtml_tablerow_end
+        ${_tablerow_end}
       done)
-  $(_confhtml_table_end)
-$(_confhtml_wrapper_end)
+  $(${_table_end})
+$(${_wrapper_end})
 _TBLHTMLEOF
 )
 
@@ -1458,37 +1537,61 @@ _p4_outlook()
   local _rowname
   local _label
   local _cols
+  local _wrapper_start
+  local _table_start
+  local _tablerow_start
+  local _tabledata_start
+  local _wrapper_end
+  local _table_end
+  local _tablerow_end
+  local _tabledata_end
+  local _preamble
 
   _cols=5
 
+  _preamble="_conf"
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --www ]] && _preamble="_www"
+    shift 1
+  done
+  _wrapper_start="${_preamble}html_wrapper_start"
+  _wrapper_end="${_preamble}html_wrapper_end"
+  _table_start="${_preamble}html_table_start"
+  _table_end="${_preamble}html_table_end"
+  _tablerow_start="${_preamble}html_tablerow_start"
+  _tablerow_end="${_preamble}html_tablerow_end"
+  _tabledata_start="${_preamble}html_tabledata_start"
+  _tabledata_end="${_preamble}html_tabledata_end"
+
   althtml_data=$(
 cat <<-_ALTHTMLEOF
-$(_confhtml_wrapper_start)
-  $(_confhtml_table_start "P4 Outlook")
-      $(for _card in "Overall:P4score" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" "Phylum_io:PHYscore"
+$(${_wrapper_start})
+  $(${_table_start} "P4 Outlook")
+      $(for _card in "Overall:P4score" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( "${_doPhylum}" && echo "Phylum_io:PHYscore" )
       do
-        _confhtml_tablerow_start "${_card/*:}"
+        ${_tablerow_start} "${_card/*:}"
         _rowname="${_card/:*}"
         for _label in "${_rowname}" Project:PFourProjectScores Product:PFourProductScores Protection:PFourProtectionScores Policy:PFourPolicyScores
         do
            [[ "${_card/*:}" == "__SECTION__" ]] && \
-             _confhtml_tabledata_start "${__SECTION__}" "col=${_cols}" && \
-             _confhtml_tabledata_end && \
-             _confhtml_tablerow_end && \
+             ${_tabledata_start} "${__SECTION__}" "col=${_cols}" && \
+             ${_tabledata_end} && \
+             ${_tablerow_end} && \
              continue 2
            if [[ -n "${_rowname}" ]]; then
-             _confhtml_tabledata_start "${_rowname/_/ }" && _rowname=
+             ${_tabledata_start} "${_rowname/_/ }" && _rowname=
            else
              unset -n _aarray; local -n _aarray; _aarray="${_label/*:}"
              local _colname="${_label/:*}"
-             _confhtml_tabledata_start "${_colname//_/ } (${_aarray[${_card/*:}]})" "bg=$(_rgb_score "${_aarray[${_card/*:}]}" "10.0")"
+             ${_tabledata_start} "${_colname//_/ } (${_aarray[${_card/*:}]})" "bg=$(_rgb_score "${_aarray[${_card/*:}]}" "10.0")"
            fi
-           _confhtml_tabledata_end
+           ${_tabledata_end}
         done
-        _confhtml_tablerow_end
+        ${_tablerow_end}
       done)
-  $(_confhtml_table_end)
-$(_confhtml_wrapper_end)
+  $(${_table_end})
+$(${_wrapper_end})
 _ALTHTMLEOF
 )
 
@@ -1511,7 +1614,7 @@ _summary_scores_criteria_tbl()
 cat <<-_WWWTBLEOF
 $(_wwwhtml_wrapper_start)
   $(_wwwhtml_table_start "Scores by Criteria" "col=${_cols}")
-      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" "Phylum_io:PHYscore"
+      $(for _card in "Criteria:CIOscore" "__SECTION__:__SECTION__" "MY_Checks:MYscore" "OSSF_Scorecard:SCscore" "MITRE_Hipcheck:HCscore" $( "${_doPhylum}" && echo "Phylum_io:PHYscore" )
       do
         # for wwwhtml table (and not confhtml table) skip __SECTION__
         [[ "${_card/*:}" == "__SECTION__" ]] && continue
@@ -1613,6 +1716,8 @@ _summary_scores()
   hcmsg="<a href='https://github.com/mitre/hipcheck/blob/main/docs/book/src/using/analyses.md'>MITRE Hipcheck</a>: (score &le; threshold) ${_HCrationale}<br/>(composed of "
   for check in "${!HCcheckScores[@]}"
   do
+    # need to wordsplit after "auto" on the HCcheckScores
+    # shellcheck disable=2086
     hcmsg="${hcmsg}${HCcheckLabels["${check}"]} ($(_fotp "${HCcheckScores["${check}"]}" "${HCcheckThresholds["${check}"]}" gt)$(_fppp "auto" ${HCcheckScores["${check}"]})/${HCcheckThresholds["${check}"]}), "
   done
   hcmsg="${hcmsg/%, /})"
@@ -1728,7 +1833,7 @@ _contrib_count()
   ${__ghSKIP} && echo "Unknown, project is not on GitHub" && return
 
   local _c
-  
+
   _c=$(jq -r '.[]|.login' "${1}" |wc -l)
   [[ ${_c} -lt ${__CONTRIBCNT__} ]] && _c="${__WARNING__}${_c}"
 
@@ -1758,15 +1863,17 @@ _sbom_val()
   local _v
 
   #
-  # assumes that this SBOM is from GitHub (the .sbom key)
-  # and assumes the SBOM confirms to SPDX (the .spdxVersion)
-  # TODO: auto-sense the SBOM format (e.g., spdx, syft,
-  #       cycloneDX, etc.)
-  _v=$(jq -r '[ .sbom.spdxVersion,.sbom.creationInfo.creators[0] ]|@csv' "${1}" | sed 's/null//g;s/"//g;s/,/, /g')
+  # TODO: cycloneDX, syft, etc.)
+  _v=$(jq -r 'if (.sbom) then .sbom else . end|[ .spdxVersion,.creationInfo.creators ]|@text' "${1}" | sed 's/\[//g;s/\]//g;s/"//g')
   [[ -z "${_v}" ]] && _v="manual";
 
   echo -n "${_v}"
   return
+}
+
+_sbom_pkgs()
+{
+  echo -n "$(cut -d, -f2 < "${1}" | cut -d: -f1 | sort | uniq -c | sort -nr | grep -vi -E '(http)'| sed 's/^[[:space:]]*\([[:digit:]]\)/\1/' | tr '\n' ','|sed 's/,$//;s/,/, /g')"
 }
 
 _day_last()
@@ -1777,7 +1884,7 @@ _day_last()
   local last
   local days
 
-  rpt=$(stat --printf=%Y "${1}") 
+  rpt=$(stat --printf=%Y "${1}")
   # date +%s --date=2023-01-27T23:27:19Z
   last=$(date +%s --date="$(jq -j '.pushed_at' "${1}")")
   days="$(( (rpt-last) / 60 / 60 / 24 ))"
@@ -1793,7 +1900,7 @@ _day_first()
   local created
   local days
 
-  rpt=$(stat --printf=%Y "${1}") 
+  rpt=$(stat --printf=%Y "${1}")
   created=$(date +%s --date="$(jq -r '.created_at' "${1}")")
   days="$(( (rpt-created) / 60 / 60 / 24 ))"
   echo "$(_fotp "${days}" "${__DAYSNEW__}")${days} days, on $(date --date="$(jq -j '.created_at' "${1}")"), reported $(_as_of "${1}")"
@@ -1910,11 +2017,12 @@ _license_risk()
   local _p
   local _pi
   local _r
+  local _ph
 
   _c="No restrictive license detected"
   # false positive check
   # shellcheck disable=2102
-  [[ -v licenseChecks[restrictive] ]] && _c="Detected $(_fotp "${MYcheckScores[ProjectRestrictiveLicense]}" "${MYcheckThresholds[ProjectRestrictiveLicense]}" gt)${MYcheckScores[ProjectRestrictiveLicense]} restrictive license(s) being: $(echo "${licenseChecks[restrictive]}"| tr ',' '\n' | sort | uniq | tr  '\n' ',' | sed 's/,$//g;s/,/, /g'). "
+  [[ -v licenseChecks[restrictive] ]] && _c="Detected $(_fotp "${MYcheckScores[ProjectRestrictiveLicense]}" "${MYcheckThresholds[ProjectRestrictiveLicense]}" gt)${MYcheckScores[ProjectRestrictiveLicense]} restrictive license(s) being: $(echo "${licenseChecks[restrictive]}"| tr ',' '\n' | sort | uniq | tr  '\n' ',' | sed 's/,$//g;s/,/, /g')"
 
   # false positive check ${__WARNING__}
   # shellcheck disable=2102
@@ -1928,8 +2036,12 @@ _license_risk()
   _r="${_p} and ${_pi} potentially reported from dependencies"
   { [[ "${_p}" =~ .*critical*. ]] || [[ "${_p}" =~ .*high*. ]]; } && _r="${__REDFLAG__}${_p}"
   #{ [[ "${_p}" == *critical\;* ]] || [[ "${_p}" == *high\;* ]]; } && _r="${__REDFLAG__}${_p}"
+  _ph=""
+  "${_doPhylum}" && {
+    _ph="Phylum reports ($(_fotp "${PHYcheckScores[license]}" "${PHYcheckThresholds[license]}")${PHYcheckScores[license]}): "
+  }
 
-  echo "${_c}<p/>Phylum reports ($(_fotp "${PHYcheckScores[license]}" "${PHYcheckThresholds[license]}")${PHYcheckScores[license]}): ${_r}"
+  echo "${_c}<p/>${_ph}${_r}"
 
   return
 }
@@ -1984,22 +2096,25 @@ _vul_check()
   #[[ "${_sc}" -le "0" ]] && _sr="No vuls found in primary component"
 
   if [ -s "${2}" ]; then
-    _sc="$(jq -r '.checks[]|select(.name=="Vulnerabilities")|[.score,"/10 as ",.reason]|@csv' "${2}")"
+    _sc="$(jq -r '.checks[]|select(.name=="Vulnerabilities")|[.score,"/10 as ",.reason," (open, known unfixed vulnerabilities)"]|@csv' "${2}")"
     _sc="$(_fotp "$(echo "${_sc}" | cut -d, -f1)" "${_SCthreshold}")${_sc}"
   else
     _sc="no insight from scorecard"
   fi
 
   #
-  # see what Phylum scorecard reports
-  #_c="$(jq -r 'def mywr: ("<a href=https://google.com>" + . + "</a>"); .issues[]|select(.riskType=="vulnerabilities")|.impact' "${1}" | sort | uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g')"
-  _c="$(jq -r '.[]|select(.riskType=="vulnerabilities")|.impact' "${1}" | sort | uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g')"
-  _r=" and detected vuls from other dependencies identified potentially: ${_c}"
+  # see what Phylum and/or Grype scorecard reports (which can comprehend dependency issues)
+  _c="$(jq -r '.[]|select(.riskType=="vulnerabilities")|.impact' "${1}" |
+    grep -E '(crit|high|low|med)'|
+    sed 's/low/zlow/;'| sort | uniq -c | sort  -k1.9 |
+    sed 's/zlow/low/;' | sed 's/^[ \t]*//;s/[ \t]*$//' |
+    tr "\n" ";" | sed 's/;/; /g;s/; $//g')";
+  _r=".<p/>Other detected vuls including other dependencies identified potentially: ${_c}"
 
-  _crits="$(jq -r '.[]|select(.riskType=="vulnerabilities" and .impact=="critical")|.tag' "${1}" |sort|uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g;s/ [CHMI]V/ /g')"
-  _w=" with criticals being ${__REDFLAG__}${_crits}"
+  _crits="$(jq -r '.[]|select(.riskType=="vulnerabilities" and .impact=="critical")|.tag' "${1}" |sort|uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g;s/ [CHMI]V[\-]/ /g')"
+  _w="<p/>criticals: ${__REDFLAG__}${_crits}"
 
-  [[ -z "${_c}" ]] && _r=" and no dependent vul(s) detected"
+  [[ -z "${_c}" ]] && _r=". And no additional dependent vul(s) detected"
   [[ -z "${_crits}" ]] && _w=""
 
   echo "${_sc}${_r}${_w}" | sed 's/"//g;s/ ,/ /g;s^,/^/^g;'
@@ -2049,6 +2164,12 @@ _dep_up2date()
   return
 }
 
+_max_project_dep()
+{
+  { [[ -f "${1}" ]] && echo -n "$(cut -d, -f1 "${1}"|sort -n|tail -1)"; } || echo -n "unknown"
+  return
+}
+
 _project_dep()
 {
   local _pat
@@ -2064,20 +2185,35 @@ _project_dep()
   #
   _mod="-i"
   _found=',100'
-  [ "${1}" == "--subs" ] && _pat='^[01],' && _f="${3}" && _mod='-v' && _found=',200'
+  case "${1}" in
+    --pri)
+      _f="${3}"
+      ;;
+    --sec)
+      _pat='^[2],'
+      _f="${3}"
+      _found=',200'
+      ;;
+    --ter)
+      _pat='^[012],'
+      _mod='-v'
+      _f="${3}"
+      _found=',200'
+      ;;
+  esac
 
   {
     echo -n "Total found: ";
     # shellcheck disable=2126
-    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | wc -l)";
+    _c="$(grep -c ${_mod} -E "(${_pat})" "${_f}")";
     echo "$(_fotp --warnFlag "${_c}" "0")${_c}"
     echo -n ", dependencies pulled: ";
     # shellcheck disable=2126
-    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep "${_found}" | wc -l)";
+    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep -c "${_found}")";
     echo "$(_fotp --warnFlag "${_c}" "0")${_c}"
     echo -n ", dependencies unknown: ";
     # shellcheck disable=2126
-    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep ",404" | wc -l)";
+    _c="$(grep ${_mod} -E "(${_pat})" "${_f}" | grep -c ",404")";
     echo "$(_fotp --warnFlag "${_c}" "1" "ge")${_c}"
   }
 
@@ -2364,7 +2500,7 @@ _badactors()
 
   local _score
   local _phmsg
-  if [ -s "${1}" ]; then
+  "${_doPhylum}" && if [ -s "${1}" ]; then
     _score="$( jq -r '.riskScores.author' "${1}" )"
     #
     # account for legacy and new Phylum json format
@@ -2401,7 +2537,7 @@ _totalRuntime()
   local _s
   local _f
 
-  _f="$(mktemp)"
+  _f="$(mktemp -u -p . -t runtime.XXXXXXXXXX)"
 
   for f in ${1} logs/${1}
   do
@@ -2420,67 +2556,522 @@ _totalRuntime()
 }
 
 #
-# customized digger to scrape a site looking for
-# and URL/URI pointing to GitHub
-# (handcrafted--needs care and feeding-sorry)
-#
-_dig4repo()
+# partially follows rules at github.com/package-url/purl-spec/blob/main/PURL-SPECIFICATION.rst
+# and                        github.com/package-url/purl-spec/blob/main/VERSION-RANGE-SPEC.rst
+#      _cmp="$(_ph_sanitize_cmp "${_c}")"
+_ph_sanitize_cmp()
 {
-  _ret="unknown"
+  local _c
+  local _cmp
+  local _cmpgrps
+  _c="${1}"
+
+  if [[ "${_c}" =~ ^pkg: ]]; then
+    # here _c is reduced (on input) to wack any qualifiers or subpaths in the pkg url
+    # false positive check, don't want shell expansion
+    # shellcheck disable=2016
+    _cmpgrps="$(sed -E 's$^pkg:/*([a-zA-Z0-9.+-]+)/([_a-zA-Z0-9.+-/%]+)([@#\?])*(.*)$_typeg1=\1;_nameg2=\2;_vqsg3=\3;_vqs_valg4=\4;$g' <<<"${_c/%[?#]*/}")"
+
+    # if sed did not match, sed gives back input and here simply give back without touching the invalid purl
+    [[ "${_cmpgrps}" == "${_c/%[?#]*/}" ]] && _warn "${_cmpgrps}: invalid purl" && echo "${_c}" && return
+
+    eval "${_cmpgrps}"
+    #
+    # next need to eliminate version ranges in the purl specification, easiet before decoding
+    # shellcheck disable=2154
+    [[ ${_vqs_valg4} =~ % ]] && {
+      # this will change '%5E11.4.0%2C%20%3C11.4.9' to this '11.4.0'
+      # false positive check, don't want shell expansion
+      # shellcheck disable=2016
+      _cmpgrps="$(sed -E 's$([%][0-9A-F][0-9A-F])*([0-9.]+)*(.*)$\2$' <<<"${_vqs_valg4}")"
+      [[ "${_cmpgrps}" != "${_vqs_valg4}" ]] && _vqs_valg4="${_cmpgrps}"
+    }
+    #
+    # for the project csv, make _c look the same as legacy phylum (for now)
+    #   form is <type>:<name>:<ver>
+    # false positive check, vars are indirectly assigned in a successful match in the sed above
+    # shellcheck disable=2154
+    _cmp="${_typeg1}:${_nameg2}:${_vqs_valg4}"
+    [[ ${_cmp} =~ % ]] && _cmp=$( urldecode "${_cmp}" )
+  else
+    _cmp="${_c}"
+  fi
+
+  echo "${_cmp}"
+  return
+}
+
+#
+# sanitize all github urls to only have :owner:/:repo:
+# pattern, no extra paths, no .git at the end or git+ at
+# beginning as such fail with GH API and tools that use it
+#
+_gh_sanitize_url ()
+{
+  # quick out
+  { [[ -z "${1}" ]] || [[ "${1,,}" == "unknown" ]] || [[ "${1,,}" == "null" ]]; } && echo "unknown" && return;
+
+  local _uriS;
+  # wack beginning upto github.com
+  # side effect here is that multiple github.com in the same var
+  # will end up as one - the last one in the list
+  # TODO: smarter file and blacklists like
+  #       github.com/sponsors/<:owner> is a valid url
+  _uriS="${1/*github.com/github.com}";
+
+  # if no github at the start - also a quick out echo back
+  ! [[ ${_uriS,,} =~ ^github.com ]] && echo "${1}" && return
+
+  # sense github.com: to be github.com/
+  _uriS="${_uriS/github.com:/github.com\/}"
 
   #
-  # if github, return early
-  # TODO: check code of all instances of HTTPS: in this code (3 places)
-  #       discovered on instance where phylum
-  #       set a github repoUrl to :owner:/:repo:.git
-  #       that .git at the end makes GH API, Scorecard
-  #       and maybe hipcheck sick - here is where to
-  #       strip it.
+  # some of these results are old and still use http:
+  # fix that here
   #
-  [[ "${1}" =~ ^github ]] && echo "${1}" && return 0
+  [[ ${_uriS,,} =~ ^http: ]] && _uriS="${_uriS/p\:/ps\:}";
 
-  case "${1}" in
+  # now ready to cut down to github.com/:owner/:repo
+  [[ ${_uriS,,} =~ ^github.com/ ]] && _uriS="$(cut -d/ -f1-3 <<<"${_uriS}")"
+  _uriS="${_uriS/%\.git/}"
+
+  grep -o -E '(github.com/[_a-zA-Z0-9-]+/[_a-zA-Z0-9-]+)' <<<"${_uriS}";
+  return
+}
+
+# see https://guides.rubygems.org/rubygems-org-api/ and
+#     https://guides.rubygems.org/rubygems-org-api-v2/
+gem_scraper()
+{
+  local _ret;
+  local _srch;
+  _srch="${1}"
+  _say -n " ${FUNCNAME[0]} for ${_srch}";
+
+  _ret=""
+  #
+  # try v2 api which includes the version number
+  #
+  { [[ ${_srch} =~ :v[[:digit:]] ]] || [[ ${_srch} =~ :[[:digit:]] ]]; } &&
+    _ret="$(curl --silent --location https://rubygems.org/api/v2/rubygems/"${_srch/%:*}"/versions/"${_srch/#*:}".json | jq -r 'if (.source_code_uri) then (.source_code_uri) else (.homepage_uri) end' 2>/dev/null)";
+
+  #
+  # failing that or if no version number given try v1 api without the version number
+  #
+  [[ -z "${_ret}" ]] &&
+    _ret="$(curl --silent --location https://rubygems.org/api/v1/gems/"${_srch/%:*}".json -o - | jq -r 'if (.source_code_uri) then (.source_code_uri) else (.homepage_uri) end' 2>/dev/null)";
+
+  { [[ "${_ret,,}" = "null" ]] || [ -z "${_ret}" ]; } && _ret="unknown";
+  _gh_sanitize_url "${_ret}";
+  return
+}
+
+cargo_scraper()
+{
+  local _ret;
+  local _srch;
+
+  # don't need the version number as part of this search
+  _srch="${1%[:@]*}"
+
+  _say -n " ${FUNCNAME[0]} for ${_srch}";
+
+  _ret="$(curl --silent --location \
+    "https://crates.io/api/v1/crates?page=1&per_page=10&q=${_srch}" -o - \
+    | jq -r --arg srch "${_srch}" '
+      .crates[]
+      | select (.id == $srch)
+      | .repository
+    ')";
+
+  [ -z "${_ret}" ] && _ret="${__NOASSERTION__}";
+
+  _gh_sanitize_url "${_ret}";
+  return
+}
+
+golang_scraper()
+{
+  local _hop
+  local _srch
+  local _ret
+
+  _srch="${1/%[:@]*}"
+
+  _say -n " ${FUNCNAME[0]} for ${_srch}";
+
+  case "${_srch}" in
+    dario.cat/*)
+      _ret=$(curl -L --silent --request GET --url "${_srch}" -o -| grep content=\""${_srch}" | grep -o 'github.com/[a-zA-Z0-9]*/[a-zA-Z0-9]*')
+      ;;
     google.golang.org/*)
-      _say "a scrapping repo" "${1}"
-      _r=$(curl -L --silent --request GET --url "${1}" -o - | grep -E -i -A 10 "(repository)" | grep -E -i  "([[:space:]]github)")
+      _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E -i -A 10 "(repository)" | grep -E -i  "([[:space:]]github)" | sed 's/^[[:space:]]*//g')
       ;;
     golang.org/*|go.opentelemetry.io/*|go.elastic.co/*|cloud.google.com/go/*|go.uber.org/*|gotest.tools/*|go.opencensus.io)
-      _say "b scrapping repo" "${1}"
-      _u=$(curl -L --silent --request GET --url "${1}" -o - | grep -E href= | cut -d\" -f2)
-      _r=$(curl -L --silent --request GET --url "${_u}" -o - |grep -E -A 3 Repository |grep -E noopener | cut -d\" -f2)
+      _hop=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E href= | cut -d\" -f2)
+      _ret=$(curl -L --silent --request GET --url "${_hop}" -o - |grep -E -A 3 Repository |grep -E noopener | cut -d\" -f2)
       ;;
     go.mozilla.org/*)
-      _say "c scrapping repo" "${1}"
-      _r=$(curl -L --silent --request GET --url "${1}" -o - | grep -E href= | grep source | cut -d\" -f2)
+      _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E href= | grep source | cut -d\" -f2)
       ;;
     gopkg.in/*)
-      _say "d scrapping repo" "${1}"
-      _r=$(curl -L --silent --request GET --url "${1}" -o - | grep btn | grep github | cut -d\" -f4)
+      _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep btn | grep github | cut -d\" -f4)
       ;;
     gocloud.dev)
-      _say "e scrapping repo" "${1}"
-      _r=$(curl -L --silent --request GET --url "${1}" -o - | grep -E "go-source" | cut -d\" -f4 | cut -d\  -f2)
+      _ret=$(curl -L --silent --request GET --url "${_srch}" -o - | grep -E "go-source" | cut -d\" -f4 | cut -d\  -f2)
       ;;
-    *) _r=""
-      _say "unknown repo pattern" "${1}"
+    github.com/*)
+      _ret="${_srch}"
+      ;;
+    *) _ret=""
+      _say "unknown golang repo pattern" "${_srch}"
       ;;
   esac
 
-  [ -n "${_r}" ] && _ret="${_r}"
-
-  echo "${_ret}"
+  [ -z "${_ret}" ] && _ret="${__NOASSERTION__}"
+  _gh_sanitize_url "${_ret}"
   return
+}
+
+#
+# dep is: 'npm:@adobe/css-tools:v4.3.3'
+# passed is: '@adobe/css-tools:v4.3.3'
+# needed:     ^^^^^^^^^^^^^^^^
+# pretty much all up and until the ':' version component
+# see: https://github.com/npm/registry/blob/main/docs/REGISTRY-API.md#get-v1search
+# NB: deprecated packages may not show up (unknown) or match
+# a similary named path, e.g, npm:babel-eslint:9.0.0 (deprecated)
+# may match pattern like package/@babel/eslint-plugin a false positive!
+# should be github.com/babel/babel-eslint rather than falsely github.com/babel/babel
+# TODO: fix matching and/or detect deprecated which the jq contains contributes
+# TODO: see if the &scope=foo (e.g., @adobe) makes a real difference
+# TODO: there may be a rate limiter involved, which needs
+#       to be looked into and implemented if so
+npm_scraper()
+{
+  local _ret
+  local _srch
+  local _htcode
+  local _jsonOut
+  local _localRetry
+
+  _srch="$(cut -d: -f1 <<<"${1}")"
+
+  _say -n " ${FUNCNAME[0]} for ${_srch}"
+  #
+  # 1 character len _srch result in a 400 response don't bother
+  #
+  [[ ${#_srch} -le 1 ]] && _gh_sanitize_url "${__NOASSERTION__}"
+
+  #
+  # NB: the search API has a 64 byte limit on the search text
+  # NB: there is a 429 code rate limit with the file containing error code: 1015
+  # TODO: this is an optimistic search (size=1) is this
+  #       too optimistic/narrow - as the json returned
+  #       for npm matches are really fuzzy as I can tell
+  #
+  _jsonOut="$(mktemp -u -p . -t npm_scr.XXXXXXXXXX)"
+  _localRetry=1
+  while [[ $_localRetry -lt 5 ]];
+  do
+    _htcode="$(curl --retry 1 --retry-all-errors --fail --silent --location \
+      --write-out "%{http_code}" \
+      "https://registry.npmjs.com/-/v1/search?text=${_srch:0:64}&size=1" \
+      -o "${_jsonOut}")"
+    { [[ -f "${_jsonOut}" ]] || [[ ${_htcode} != "429" ]]; } && break;
+    _localRetry=$(( _localRetry+1 ));
+    _say -n " ${FUNCNAME[0]}: ${_rc} with ${_htcode}"
+  done
+
+  _ret="$(jq -r --arg srch "${_srch}" '
+      .objects[]
+        |.package.links
+          |select (.npm |contains($srch))|.repository
+    ' "${_jsonOut}")"
+
+  rm -f "${_jsonOut}"
+  [ -z "${_ret}" ] && _ret="${__NOASSERTION__}"
+  _gh_sanitize_url "${_ret}"
+  return
+}
+
+#
+# dep is: 'maven:com.amazonaws:aws-java-sdk-core:1.11.571'
+# passed is: 'com.amazonaws:aws-java-sdk-core:1.11.571'
+# OR
+# passed is: 'com.amazonaws/aws-java-sdk-core:1.11.571'
+# we need:    ^^^^^^^^^^^^^ ^^^^^^^^^^^^^^^^^ ^^^^^^^^
+# becomes:    com/amazonaws/aws-java-sdk-core/1.11.571/aws-java-sdk-core-1.11.571.pom
+#
+maven_scraper()
+{
+  local _rc
+  local _ret
+  local _srch
+  local _dom
+  local _art
+  local _ver
+
+  # here the <name>:<ver> portion of <type>:<name>:<ver> of the arg
+  # is being parsed into search components for maven repo
+  #
+  #eval "$(sed 's/\([[:print:]].*\)[:\/]\([[:print:]].*\)[:@]*[v]*\(.*\)/_ver=\3;_art=\2;_dom=\1/g' <<<"${1}")"
+  #eval "$(sed -E 's/^([^:\/?\n]+)[:\/]([^:@?\n]+)[:@]*v*(.*)/_dom=\1;_art=\2;_ver=\3;/mg' <<<"${1}")"
+  eval "$(sed -E 's/^([^:\/?\n]+)[:\/]([^:?\n]+)[:@]*v*(.*)/_dom=\1;_art=\2;_ver=\3;/mg' <<<"${1}")"
+
+  { [[ -z "${_ver}" ]] && [[ -z "${_art}" ]] && [[ -z "${_dom}" ]] && _say "${FUNCNAME[0]} for '${1}': malformed" && echo "unknown" && return; } || _say "version: '${_ver}' article: '${_art}' domain: '${_dom}'"
+
+   #
+   # try for the .pom file first
+   # TODO: there are some strange version numbers out there
+   #       on thing to do is to mangle the version number 
+   #       pattern to try another .pom version - likely ugghh
+   #       another thing is to search on the artifact like
+   #       npm and select/drill from there.
+   #       using central artifact search is kinda a shortcut
+   #
+  _loc="repo1.maven.org/maven2"
+  _srch="${_dom//\./\/}/${_art}/${_ver}/${_art}-${_ver}.pom"
+
+  _jsonOut="$(mktemp -u -p . -t mvn_scr.XXXXXXXXXX)"
+  _localRetry=1
+  _htcode=
+  while [[ $_localRetry -lt 3 ]];
+  do
+    { [[ -z "${_htcode}" ]] && _say -n " ${FUNCNAME[0]}: trying ${_loc} for ${_srch}"; } || _say -n " ${FUNCNAME[0]}: ${_rc} with ${_htcode} now trying ${_loc} for ${_srch}"
+
+    _htcode="$(curl --retry 1 --retry-all-errors --fail --silent --location \
+      --write-out "%{http_code}" \
+      "https://${_loc}/${_srch}" \
+      -o "${_jsonOut}" \
+      )"
+
+    _rc="${?}"
+
+    [[ ! -f "${_jsonOut}" ]] && cp /dev/null "${_jsonOut}"
+
+    case "${_loc}" in
+      repo1.maven.org/maven2)
+        _ret="$(grep -B 10 -E '(</scm>)' "${_jsonOut}" | grep -E '(<url>)' | grep github)"
+        ;;
+      central.sonatype.com/artifact)
+        _ret="$(grep -o 'github.com/[^:"/]*/[^:"/]*' "${_jsonOut}" | sort | uniq )"
+        ;;
+      *)
+        ;;
+    esac
+
+    #
+    # likely github hit - we are done
+    #
+    [[ -n "${_ret}" ]] && [[ "${_htcode}" == "200" ]] && break
+
+    #
+    # second try as the prev curl may have 404'ed
+    # or the .pom may not have referenced github
+    # this second try appears to be more time costly
+    #
+    _localRetry=$(( _localRetry+1 ));
+    _srch="${_dom}/${_art}"
+    _loc="central.sonatype.com/artifact"
+  done
+
+  rm -f "${_jsonOut}"
+
+  [ -z "${_ret}" ] && _ret="${__NOASSERTION__}"
+  _ret="${_ret/#*<url>}"
+  _gh_sanitize_url "${_ret/%<\/url>}"
+  return
+}
+
+#
+# inspired by https://github.com/hugovk/pypi-tools/blob/main/source_finder.py
+#
+# dep is: 'pypi:jira:>=3.1.1'
+# passed is: 'jira:>=3.1.1'
+# we need:    ^^^^   ^^^^^
+# becomes:    jira/3.1.1/json
+# and there is this pattern: pypi:typed-ast:<2,>=1.4.0
+# it seems at the moment, passing 'jira/json' is also acceptable
+# so may not need to deal with version range specifications
+#
+pypi_scraper()
+{
+  local _ret;
+  local _srch;
+  local _jsonOut;
+
+  _jsonOut="$(mktemp -u -p . -t pyp_scr.XXXXXXXXXX)"
+
+  _srch="${1%[:@]*}"
+
+  _say -n " ${FUNCNAME[0]} for ${_srch}";
+
+  #
+  # TODO: check return codes, seen instances where
+  #       a srch resulted in nothing but then later
+  #       hits
+  #
+  curl --silent --location \
+    "https://pypi.org/pypi/${_srch}/json" -o "${_jsonOut}"
+
+  _ret="$(jq -r 'if (.info.project_urls.GitHub) then .info.project_urls.GitHub else .info.project_urls[]? end' "${_jsonOut}")"
+
+  case $(grep -c -i "github.com/" <<<"${_ret}") in
+  0) # nothing with github.com clear results
+    _ret=""
+    ;;
+  1) # no op only 1 github.com/ hit let pass thru
+    :
+    ;;
+  *) # uggh more than one try to figure out the right one
+    # is the search name in the possible github.com/ urls
+    _candret="$(grep -i "github.com/" <<<"${_ret}" | grep -E "(${_srch})")"
+    if [[ -n "${_candret}" ]]; then
+      # yep - go with that one
+      _ret="${_candret}"
+    else
+      # no search name match and more than one github.com - sort uniq and hope for one
+      # TODO: find a better way like fuzzy matching
+      _ret="$(grep -i "github.com/" <<<"${_ret}" | sed 's^[[:space:]].*https://^https://^g;s/"$/",/g' | sort | uniq)"
+    fi
+    ;;
+  esac
+
+  rm -f "${_jsonOut}"
+
+  [ -z "${_ret}" ] && _ret="${__NOASSERTION__}";
+  _gh_sanitize_url "${_ret}";
+  return
+}
+
+_dig4repo_hint()
+{
+  #
+  # commas around the search is needed to ensure only exact matches
+  #
+  grep --fixed-strings ,"${2}", "${1}"  |cut -d, -f4
+  return
+}
+
+#
+# invokes custom scrapers to scrape a site or API
+# looking for and URL/URI pointing to GitHub
+#
+# must return "unknown" (${__NOASSERTION__} ) OR "" if not known
+#
+_dig4repo()
+{
+  local _eco
+  local _scraper_fn
+  local _ret
+
+  _ret="${__NOASSERTION__}"
+
+  { [[ -z "${1/%null/}" ]] || [[ "${1}" =~ ^github.com/ ]]; } &&
+    _gh_sanitize_url "${1/%null/${__NOASSERTION__}}" &&
+      return
+
+  [[ -f "${_OSSSCIRrepoResolveDB}" ]] && {
+    _ret="$( _dig4repo_hint "${_OSSSCIRrepoResolveDB}" "${1}" )";
+    [[ -n "${_ret}" ]] && _say -n " repo hint hit for ${1} " && _gh_sanitize_url "${_ret}" && return;
+  }
+  _eco="$(cut -d: -f1 <<<"${1}")"
+  _scraper_fn="${_eco}_scraper"
+
+  #
+  # invoke the scaper function for the eco system passed
+  # without the _eco portion of the puri
+  #
+  [[ -n "$(type -t "${_scraper_fn}")" ]] &&
+    [[ "$(type -t "${_scraper_fn}")" = "function" ]] &&
+      "${_scraper_fn}" "${1/${_eco}:}" &&
+        return
+  #
+  # other wise a scraper function has not been yet defined
+  #
+
+  _gh_sanitize_url "${_ret}"
+  return
+}
+
+#
+# runs ghapi to get project meta data
+# "${_pullFN}" "${_pkg}" "${_depout}_deps.json" "${_sbomsrc}"; then
+#
+pull_ghSBOM()
+{
+  local _outfile=${2}
+  local _sbom_from=${3}
+  local _rc=1
+  local _code_out
+  readonly _outfile
+  readonly _sbom_from
+  local _retry=${_phy_pkg_api_retry_count}
+
+  [[ ! "${_sbom_from}" =~ github.com  ]] &&
+    __xform_sbom_unsupported "${1}" "${_sbom_from}" "sbom API not supported" >"${_depout}_deps.json" && return 0
+
+  _say "running gh api for SBOM from ${_sbom_from} on ${1} to ${_outfile}"
+  #
+  # do until a success or break after retries
+  #
+  _code_out="$(mktemp -u -p . -t sbom_http_code.XXXXXXXXXX)"
+  while [[ ${_retry} -gt 0 ]] #{
+  do
+    waitRateLimit "${_lowerLimit}"
+    #
+    # follow redirects
+    # TODO: determine if there are other
+    #       places where this needs to be
+    #
+
+    curl --location --silent --write-out "%{http_code}" \
+      -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "${_sbom_from}/dependency-graph/sbom" \
+      -o "${_outfile}" > "${_code_out}"
+
+    _rc="${?}"
+    read -r _code < "${_code_out}"
+
+    { [[ ${_rc} -gt 0 ]] || [[ ! -s "${_outfile}" ]]; } &&
+      _warn --q "${_outfile}: sbom is zero bytes ${_rc} with ${_code}" &&
+      _retry=$((_retry-1)) && _say "sleep penalty" && sleep 3
+
+    case "${_code}" in
+      "406")
+        __xform_sbom_unsupported "${1}" "${_sbom_from}" "sbom not pulled - curl 406 code unrecoverable" > "${_outfile}"
+        continue ;;
+      "404")
+        __xform_sbom_unsupported "${1}" "${_sbom_from}" "sbom not found - likely not enabled on github" > "${_outfile}" ;;
+      *)
+        ;;
+    esac
+
+    [[ ${_rc} -eq 0 ]] && _retry=0
+  done #}
+  rm -f "${_code_out}"
+
+  #
+  # transform sbom to support phylum dependency format (for now)
+  #
+  grep -q packages "${_outfile}" && mv "${_outfile}" "${_outfile/_deps.json/_ghapi_sbom.json}" &&
+     __xform_sbom_prds_dep "${_outfile/_deps.json/_ghapi_sbom.json}" "${_outfile}"
+
+  return ${_rc}
 }
 
 readonly _phy_pkg_api_retry_count=3
 pull_phyPackage()
-{ 
+{
   local _phy_pkg=${1}
   local _outfile=${2}
   readonly _phy_pkg
   readonly _outfile
   local _retry=1
-  
+
   #
   # do until a success or break after retries
   #
@@ -2509,11 +3100,11 @@ pull_phyPackage()
       _say "curl failed: penalty sleep of 3 $(phylum auth status 2>/dev/null 1>&2; echo ${?})" && sleep 3
     fi
   done #}
-  
+
   #
   # default return fail
   return 1
-} 
+}
 
 # Phylum API mangling
 #
@@ -2552,6 +3143,7 @@ makePuri()
 # this digger works off primary dependencies
 # from a phylum analysized project
 #
+_subdepWarningLimit="false"
 _dig4subdep()
 {
   #
@@ -2559,13 +3151,17 @@ _dig4subdep()
   #
   local _lev
   local _c
-  local _ftoupdate
   local _dep
+  local _cmp
+  local _r
+  local _ftoupdate
+  local _depdir
   local _depout
   local _pkg
   local _l
   local _rc
   local _d
+  local _sbomsrc
 
   _lev="${1}"
   _c="${2}"
@@ -2573,7 +3169,7 @@ _dig4subdep()
   readonly _lev
   readonly _ftoupdate
   readonly _c
- 
+
   #
   # find all reasons to return to avoid infinite recursion
   #
@@ -2584,21 +3180,35 @@ _dig4subdep()
   #
   [ "${_lev}" -eq 0 ] && _say "reached limit imposed at level ${_lev} returning..." && return
   # don't dig past dependencyDepth (-d)
-  [[ ${dependencyDepth} != "all" ]] && [[ "${_lev}" -ge ${dependencyDepth} ]] && _warn "dependency depth limit: found level ${_lev} skipping ${_c} returning..." && return
+  [[ ${dependencyDepth} != "all" ]] && [[ "${_lev}" -gt ${dependencyDepth} ]] &&
+    if "${_subdepWarningLimit}"; then
+      _say -n "${_lev}";
+      return;
+    else
+      _info "dependency depth limit '(-d ${dependencyDepth})': skipped deeper dependencies...";
+      _subdepWarningLimit="true";
+      return;
+    fi;
+
+  _cmp="$(_ph_sanitize_cmp "${_c}")"
+  _dep="$(cut -d, -f2 <<<"${_cmp}")"
+
   #
-  # TODO: fix/understand npm dependencies, this algorithm seemingly
+  # TODO/OBE: fix/understand npm dependencies, this algorithm seemingly
   #       goes on forever - just stick to two levels until this is
   #       undertstood
-  [[ "${_c}" =~ ^npm ]] && [ "${_lev}" -eq 2 ] && _warn "npm limit: found level ${_lev} skipping ${_c} returning..." && return
+  #       the default TERTIARY_BLACKLIST effectively does this better
+  #       users, though, can override this and likely get into a deep search
+  #[[ "${_cmp}" =~ ^npm ]] && [ "${_lev}" -eq 2 ] && _warn --q "npm limit: found level ${_lev} skipping ${_cmp} returning..." && return
 
 
   # form pkg name, _c, into for needed by
   # phylum.io's API (_pkg) and the naming
   # convention for the subdependent cache
   #
-  _pkg="$(makePuri "${_c}")"
-  _dep="subdeps.d/$(mkdepdir "${_c}")"
-  _depout="${_dep}/$(basename "${_dep}")"
+  _pkg="$(makePuri "${_cmp}")"
+  _depdir="subdeps.d/$(mkdepdir "${_cmp}")"
+  _depout="${_depdir}/$(basename "${_depdir}")"
 
   # start digging on this tree
 
@@ -2608,12 +3218,12 @@ _dig4subdep()
   # verbose symbol
   #   ^: is were returning from a completed visit (mostly seen)
   #   %: in the middle of a previous visit (rarely seen)
-  #      
+  #
   [ -f "${_depout}_deps.json.visited" ] && _say "-n" "^" && return
   [ -f "${_depout}_deps.json.visited.err" ] && _say "-n" "^" && return
   [ -f "${_depout}_deps.json.visiting" ] && _say "-n" "%" && return
 
-  mkdir -p "${_dep}"
+  mkdir -p "${_depdir}"
 
   { ${BFLAGS[subdeps]} || ${force_rebuild}; } &&
     cp /dev/null "${_depout}_deps.json"
@@ -2628,17 +3238,37 @@ _dig4subdep()
   #       and wack the _deps.json as it will contain the
   #       error message from phylum and not the results
   #
+  # if ! pull_phyPackage "${_pkg}" "${_depout}_deps.json"; then
+  #
+  _pullFN=pull_ghSBOM && [[ "${dependency_type}" == "${__PHYLUM__}" ]] && _pullFN=pull_phyPackage
+  #
+  # here for SBOM's shortcut the lookup which for non-github srcs will fail
+  # TODO: for now the same _c can be id'd as being a dependency in many depths
+  #       this grep could results in multiple lines coming back, for for now
+  #       only search for relevent github.com hits and ensure only one - not the best
+  #
+#  _sbomsrc="$(grep --fixed-strings ",${_cmp}," "${_ftoupdate}" | cut -d, -f4 | grep github.com/ | uniq | head -1)"
+  _sbomsrc="$(grep --fixed-strings ",${_cmp}," "${_ftoupdate}" | cut -d, -f4 | uniq | head -1)"
+  [[ ! "${_sbomsrc}" =~ github.com  ]] &&
+    { 
+      __xform_sbom_unsupported "${_cmp}" "${_sbomsrc}" "sbom API not supported" >"${_depout}_deps.json" || 
+      _warn --q "::::::::: errno $? on '${_depout}_deps.json'"; } &&
+      touch "${_depout}_deps.json.err" &&
+      touch "${_depout}_deps.json.visited.err" &&
+      if ! grep -q --fixed-strings ",${_cmp}," "${_ftoupdate}"; then echo "${_lev},${_cmp},${_dep},unknown,404" >> "${_ftoupdate}"; fi &&
+      _say "-n" "&" && return
+
   [ ! -s "${_depout}_deps.json" ] &&
-    _say -n "pulling ${_c} dependencies..." &&
-    if ! pull_phyPackage "${_pkg}" "${_depout}_deps.json"; then
+    _say -n "pulling ${_cmp} dependencies..." &&
+    if ! "${_pullFN}" "${_pkg}" "${_depout}_deps.json" "${_sbomsrc}"; then
       [ ! -s "${_depout}_deps.json" ] &&
-        _warn "curl failed for ${_c}"
+        _warn "curl failed for ${_cmp}"
       [ -s "${_depout}_deps.json" ] &&
         mv "${_depout}_deps.json" "${_depout}_deps.json.err" &&
-        _warn "pull failed for ${_c}"
+        _warn "pull failed for ${_cmp}"
 
       touch "${_depout}_deps.json.visited.err"
-      if ! grep -q --fixed-strings ",${_c}," "${_ftoupdate}"; then echo "${_lev},${_c},${_c},${_c},404" >> "${_ftoupdate}"; fi
+      if ! grep -q --fixed-strings ",${_cmp}," "${_ftoupdate}"; then echo "${_lev},${_cmp},${_dep},unknown,404" >> "${_ftoupdate}"; fi
       _say "-n" "&" && return
     fi;
 
@@ -2653,13 +3283,24 @@ _dig4subdep()
   # TODO: recording here is really knowing if the component
   #       exists as it is after the dependency pull
   #
-  _r="$(jq -r '.repoUrl' "${_depout}_deps.json")"
-  [[ -z "${_r}" ]] && _r="unknown"
+  _r="$(jq -r '.repoUrl|select(.!=null)' "${_depout}_deps.json")"
+  [[ -z "${_r}" ]] && _r="${__NOASSERTION__}"
   # if (! grep -q ${id} /etc/passwd) && (! grep ${id} /etc/group); then echo not there; fi
-  if ! grep -q --fixed-strings ",${_c}," "${_ftoupdate}"; then echo "${_lev},${_c},${_r},${_r},200" >> "${_ftoupdate}"; fi
+  #
+  # short cut to reduce calls to _dig4repo
+  # that is only _dig4repo if this pattern is NOT
+  # in the file about to be updated the repo is already
+  # known (from a # prior run). RISK if repo changed, this'll be wrong
+  #
+  _line="${_lev},${_cmp},${_dep},github.com/.*/.*,200"
+  [[ ! ${_line} =~ ^1, ]] && ! grep -q -o -E "(^${_line}$)" "${_ftoupdate}" &&
+  {
+    _r=$(_dig4repo "${_cmp}");
+    _line="${_lev},${_cmp},${_dep},${_r},200" && { _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]]; } || { grep -q --fixed-strings ,, <<<"${_line}"; } &&
+      _warn "_cmp '${_cmp}' _depout '${_depout}'" && _fatal "corrupt ${_line} pkg being ${_c}";
+    if ! grep --fixed-strings -s -q "${_line}" "${_ftoupdate}"; then echo "${_line}" >> "${_ftoupdate}"; fi;
+  }
 
-  jq -r '.dependencies[]|.id' "${_depout}_deps.json" 2>/dev/null | \
-    sort | \
     while :; do #{
       read -r _d
       if [ -z "${_d}" ]; then
@@ -2671,10 +3312,15 @@ _dig4subdep()
       _l=$((_lev+1))
       #
       # record dependency (parent/child) relationship
-      #
-      echo "#s ${_dep}" >> "${__tmp_dep_graph}" && echo "\"${_c}\" -> \"${_d}\";" >> "${__tmp_dep_graph}";
+      # the dependency (_d) will be sanitized and captured during recursive decent
+      # however recording the dependency in the graphviz want the sanitized version
+      _line="\"${_cmp}\" -> \"$(_ph_sanitize_cmp "${_d}")\";"
+      ! grep --fixed-strings -s -q "${_line}" "${__tmp_dep_graph}" && {
+        echo "#s:${_l} ${_d}" >> "${__tmp_dep_graph}" && echo "${_line}" >> "${__tmp_dep_graph}";
+      }
+      # still need to dig regardless as depth may have changed
       _dig4subdep "${_l}" "${_d}" "${_ftoupdate}"
-    done #}
+    done < <(jq -r '.dependencies[]|.id' "${_depout}_deps.json" 2>/dev/null | grep -v -E "(${_TERTIARY_BLACKLIST})" | sort) #}
 
   touch "${_depout}_deps.json.visited"
   rm -f "${_depout}_deps.json.visiting"
@@ -2685,14 +3331,29 @@ _dig4subdep()
 
 _phylum_prjId()
 {
+  local _dolabel="true"
+  local _label=""
+
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --terse ]] && _dolabel="false"
+    shift 1
+  done
+
   local _prj="${1}";
   export _prj;
 
-  [[ "${puri}" != "${__NULLPURI__}" ]] && echo "Package URI: ${puri}" && return
+  "${_dolabel}" && _label="Package URI: "
+  [[ "${dependency_type}" == "${__SBOM__}" ]] && "${_dolabel}" && _label="Package ${__SBOM__}: ${dependency_src}, "
 
-  echo "Phylum Project ID: $(jq -r '                
-    .values[] | select(.name==env._prj) | 
-      [ .name,.id ] | @csv' "${2}" | \
+  [[ "${puri}" != "${__NULLPURI__}" ]] && echo "${_label}${puri}" && return
+  [[ "${dependency_type}" == "${__SBOM__}" ]] && echo "${_label}$(grep SBOM, "${2}" | cut -d, -f3)" && return
+
+  "${_dolabel}" && _label="Phylum Project ID: "
+
+  echo "${_label}$(jq -r '
+    .values[] | select(.name==env._prj) |
+      [ .name,.id ] | @csv' "${2}" 2>/dev/null | \
     cut -d, -f2 | sed 's/"//g')"
 }
 
@@ -2709,6 +3370,7 @@ _phylum_jobId()
   local _jobFile
   local _verb
 
+  [[ ${dependency_type} == "${__SBOM__}" ]] && jq -r 'if (.sbom) then .sbom else . end|.creationInfo.created' "${dependency_src}" && return
   ${_phylum_jobId_BHDT} && jq -r '[.latestJobId,.updatedAt]|@csv' "${2}" | sed 's/"//g' && return
 
   #
@@ -2737,8 +3399,8 @@ _phylum_jobId()
     _verb="has been cached" &&
     cp /dev/null "${1}_job_${_job}.json"
 
-  _jobFile="$(mktemp -u -p .)"
-  _walker_file="$(mktemp -u -p .)"
+  _jobFile="$(mktemp -u -p . -t jobFile.XXXXXXXXXX)"
+  _walker_file="$(mktemp -u -p . -t wlkFile.XXXXXXXXXX)"
 
 cat <<-'_JQWALKEREOF' > "${_walker_file}"
 # Apply f to composite entities recursively, and to atoms
@@ -2790,11 +3452,12 @@ _phylum_jobStatus()
 {
  local _job
 
+  [[ ${dependency_type} == "${__SBOM__}" ]] && echo "complete" && return
   [[ "${puri}" != "${__NULLPURI__}" ]] && echo "" && return
 
  _job="$(_phylum_jobId "${1}" "${2}")"
  [[ -z "${_job/,*/}" ]] && _job=null
- jq -r '.status' "${1}_job_${_job/,*/}.json"
+ { [[ -f "${1}_job_${_job/,*/}.json" ]] && jq -r '.status' "${1}_job_${_job/,*/}.json"; } || echo "";
 
  return
 }
@@ -2803,8 +3466,10 @@ _phylum_jobReport()
 {
   local _status
   local _jobUpdated
+  local _label="Phylum Job last"
 
   [[ "${puri}" != "${__NULLPURI__}" ]] && echo "Job Analysis N/A for Package URI (-U)" && return
+  [[ "${dependency_type}" == "${__SBOM__}" ]] && _label="${__SBOM__} created on"
 
   [[ ${1} == --readOnly ]] && _phylum_jobId_BHDT="true" && shift 1
 
@@ -2814,7 +3479,7 @@ _phylum_jobReport()
 
   [[ "${_status}" == "incomplete" ]] && _status="${__REDFLAG__}${_status}"
 
-  echo "Phylum Job last ${_jobUpdated/,/ updated at } (${_status})"
+  echo "${_label} ${_jobUpdated/,/ updated at } (${_status})"
 }
 
 #
@@ -2840,6 +3505,103 @@ _patchIfNeeded()
   return 0
 }
 
+#    __phylum_deps "${_apiMethod}" "${_prjid}" "${1}" "${3}"
+__phylum_deps()
+{
+  local _apiMethod="${1}"
+  local _prjid="${2}"
+  local _cmp="${3}"
+  local _file="${4}"
+
+  #
+  # TODO: test and warn / error if _prjid cannot be
+  #       found - this could be related to a bad
+  #       name for the phylum project or a pagination
+  #       limit
+  _say "getting dependencies of ${_cmp} and _prjid=${_prjid}"
+
+  [ ! -f "${_file}" ] &&
+    _say -n "building Phylum project product dependencies caches..." &&
+      {
+        curl --silent --request GET \
+          --url "https://api.phylum.io/api/v0/data/${_apiMethod}/${_prjid}" \
+          --header 'accept: application/json' \
+          --header "authorization: Bearer $(phylum auth token --bearer)" \
+          -o "${_file}" \
+        ||
+        _fatal "phylum-api project product dependency pre-cache failed.";
+      };
+
+  [ ! -f "${_file}" ] || [ ! -s "${_file}" ] &&
+    _fatal "${_file} is missing or empty"
+
+  _say "OK"
+
+  [ "$(find "${_file}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
+    _warn "${_file} over ${_cache_days}(s) days old, consider rebuilding (-f deps)"
+
+  _patchIfNeeded "${_file}"
+
+  return
+}
+
+#  __xform_sbom_unsupported "${_c}" "${_sbomsrc}" "${_msg}"
+__xform_sbom_unsupported()
+{
+  echo "{ \"dependencies\": [], \"_c\": \"${1}\", \"_sbomsrc\": \"${2}\" , \"_msg\": \"${3}\" }";
+  return 0
+}
+
+#  __xform_sbom_prds_dep "${_sbomsrc}" "${_file}"
+__xform_sbom_prds_dep()
+{
+  local _sbomsrc="${1}"
+  local _ofile="${2}"
+
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    :
+    shift 1
+  done
+
+  [ ! -f "${_ofile}" ] &&
+    jq -r \
+    '
+     if (.sbom) then .sbom else . end
+     | del ( .packages[].externalRefs[]? | select (.referenceCategory!="PACKAGE-MANAGER" ))
+     | .packages|=map(.id=.externalRefs[0].referenceLocator)
+     | .packages|=map(.repoUrl=null)
+     | with_entries(if .key == "packages" then .key = "dependencies" else . end)
+    ' "${_sbomsrc}" > "${_ofile}"
+
+  return
+}
+
+#    __sbom_deps "${dependency_src}" "${_prjid}" "${1}" "${3}"
+__sbom_deps()
+{
+  local _sbomsrc="${1}"
+  local _prjid="${2}"
+  local _cmp="${3}"
+  local _file="${4}"
+
+  _say "getting dependencies of ${_cmp} and _prjid=${_prjid}"
+
+  jq -r '.' "${_sbomsrc}" > /dev/null || _fatal "${_sbomsrc}: JSON validation Failed:";
+
+  __xform_sbom_prds_dep "${_sbomsrc}" "${_file}"
+
+  [ ! -f "${_file}" ] || [ ! -s "${_file}" ] &&
+    _fatal "${_file} is missing or empty"
+
+  _say "OK"
+
+  [ "$(find "${_file}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
+    _warn "${_file} over ${_cache_days}(s) days old, consider rebuilding (-f deps)"
+
+  return
+}
+
 #
 # builds a CSV file with the pattern
 # <level>,<component name>,<URL>
@@ -2857,103 +3619,86 @@ _phylum_dep_components()
   # get the phylum project id from list of projects
   #
   local _apiMethod
+  local _c
+  local _r
+  local _dep
+  local _cmp
 
   ${blockNetwork} && _warn "Offline mode, traversing component dependencies, skipped" && return 0
-
-  _apiMethod="projects"
-  _prjid=$(_phylum_prjId "${1}" "${2}")
-  [[ "${puri}" == "${_prjid}" ]] && _apiMethod="packages" && _prjid="$(makePuri "${puri}")"
-
-  [[ -z "${_prjid}" ]] && _fatal "phylum-api project ${1} not found."
-
-  #
-  # TODO: test and warn / error if _prjid cannot be
-  #       found - this could be related to a bad
-  #       name for the phylum project or a pagination
-  #       limit
-  _say "getting dependencies of ${1} and _prjid=${_prjid}"
 
   #########
   # pre-cache phylum project product dependencies
   _say -n "checking ${1} project product dependency caches..."
 
   ${component_dep_rebuild} || ${force_rebuild} &&
-    _say -n "forced clearing PH project product dependency caches..." && rm -f "${3}"
+    ! "${_updatingFlag}" && _say -n "forced clearing of product dependency caches..." && rm -f "${3}"
 
-  [ ! -f "${3}" ] &&
-    _say -n "building Phylum project product dependencies caches..." &&
-    (
-      (
-        curl --silent --request GET \
-          --url "https://api.phylum.io/api/v0/data/${_apiMethod}/${_prjid}" \
-          --header 'accept: application/json' \
-          --header "authorization: Bearer $(phylum auth token --bearer)" \
-          -o "${3}"
-      ) ||
-      (
-        _fatal "phylum-api project product dependency pre-cache failed."
-      )
-    )
+  if [[ "${dependency_type}" == "${__SBOM__}" ]]; then
+    _prjid=sbom
+    [[ "${dependency_src^^}" == "${__GITHUB__}" ]] && dependency_src="$(grep SBOM, "${__phy_prjs}" | cut -d, -f4)"
+    __sbom_deps "${dependency_src}" "${_prjid}" "${1}" "${3}"
+  else
+    _apiMethod="projects"
+    _prjid=$(_phylum_prjId --terse "${1}" "${2}")
+    [[ "${puri}" == "${_prjid}" ]] && _apiMethod="packages" && _prjid="$(makePuri "${puri}")"
 
-  [ ! -f "${3}" ] || [ ! -s "${3}" ] &&
-    _fatal "${3} is missing or empty"
+    [[ -z "${_prjid}" ]] && _fatal "project ${1} not found."
+    __phylum_deps "${_apiMethod}" "${_prjid}" "${1}" "${3}"
+  fi
 
-  _say "OK"
+  ! "${_updatingFlag}" && _say "resetting ${4}" && cp /dev/null "${4}" && cp /dev/null "${__tmp_dep_graph}" && component_subdep_rebuild="true";
 
-  [ "$(find "${3}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${3} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+  _say "getting analysis job" && _phylum_jobStatus "${1}" "${3}" 1>/dev/null 2>&1;
 
-  _patchIfNeeded "${3}"
-
-  _say "resetting ${4}" && cp /dev/null "${4}" && cp /dev/null "${__tmp_dep_graph}" && component_subdep_rebuild="true";
-
-  _say "getting Phylum analysis job" && _phylum_jobStatus "${1}" "${3}" 1>/dev/null 2>&1;
-
-  jq -r '.dependencies[]|.id,.repoUrl' "${3}" | \
-    while :; do #{
-      read -r _c
-      read -r _r
-
+    while IFS=$'\t' read -r  _c _r; do #{
       if [ -z "${_c}" ]; then
         break;
       fi
 
-      _dep=$(echo "${_c}" | cut -d: -f2)
-      _repo=$(_dig4repo "${_dep}")
-      if [ "${_repo}" == "unknown" ]; then
+      _cmp="$(_ph_sanitize_cmp "${_c}")"
+      _dep="$(cut -d, -f2 <<<"${_cmp}")"
+
+      #
+      # record uniq parent/child dependency relationship for graphing
+      #
+      _line="\"${1}\" -> \"${_cmp}\";"
+      ! grep --fixed-strings -s -q "${_line}" "${__tmp_dep_graph}" && {
+        echo "#p ${_cmp}" >> "${__tmp_dep_graph}" && echo "${_line}" >> "${__tmp_dep_graph}";
+      }
+
+      #
+      # short cut to reduce calls to _dig4repo
+      # that is if this pattern is in the file about
+      # to be updated the github repo is already known (from a
+      # prior run). RISK if repo changed, this'll be wrong
+      #
+      _line="${5},${_cmp},${_dep},github.com/.*/.*,100"
+      grep -q -o -E "(^${_line}$)" "${4}" && _say -n "." && continue
+
+      _repo=$(_dig4repo "${_cmp}")
+      if [ "${_repo}" == "${__NOASSERTION__}" ] && [ -n "${_r/null/}" ]; then
         _r=${_r//https:\/\//}
         _r=${_r//http:\/\//}
         _repo=$(_dig4repo "${_r}")
       fi
-
-      echo "${5},${_c},${_dep},${_repo},100" >> "${4}"
-      # 5   : 1,
-      # _c  : rubygems:parallel:1.22.1,
-      # _dep: parallel,
-      # repo: github.com/grosser/parallel/tree/v1.22.1,
-      # code: 100
       #
-      # 5   : 1,
-      # _c  : rubygems:json:2.6.1,
-      # _dep: json,
-      # repo: github.com/flori/json,
-      # code: 100
-      echo "# ${_dep}" >> "${__tmp_dep_graph}" && echo "\"${1}\" -> \"${_c}\";" >> "${__tmp_dep_graph}";
-
-    done #}
-
+      # keep a list of projects with their repo/vcs home
+      #
+      _line="${5},${_cmp},${_dep},${_repo},100" && _y="${_line//[^,]}" && [[ ${#_y} -ne 4 ]] && _fatal "corrupt primary line: ${_line} pkg being ${_c}"
+      ! grep --fixed-strings -s -q "${_line}" "${4}" && {
+        echo "${_line}" >> "${4}";
+      }
+    done < <(jq -j -r '.dependencies[]|.id,"\t",.repoUrl,"\n"' "${3}" |grep -v -E "(${_PRIMARY_BLACKLIST})")
   return
 }
 
 _phylum_subdep_components()
 {
-  _prds=${1}
-  _prjs=${2}
+  local _prds=${1}
+  local _prjs=${2}
 
-  readonly _prds
-
-  (${force_rebuild} || ${component_subdep_rebuild} ) &&
-    _say -n "clearing subdep project dependency caches..." && find . \( -name \*visited -o -name \*visited.err \) -delete
+  { ${force_rebuild} || ${component_subdep_rebuild}; }  &&
+    _say -n "clearing subdep project dependency caches..." && find . \( -name \*visiting -o -name \*visited -o -name \*visited.err \) -delete
 
   #
   # TODO: this is not done yet, this output file
@@ -2968,24 +3713,36 @@ _phylum_subdep_components()
   # for apache/hive, # which results in a bad read for this loop, hence the 'grep -v'
   # TODO: find a general way to clean these inputs from phylum
   #
-  jq -r '.dependencies[]|.id' "${_prds}" | grep -v -E '(^[[:space:]].*$|^$)' | \
-    sort | \
     while :; do #{
       read -r _c
       if [ -z "${_c}" ]; then
         break;
       fi
-      #_dig4subdep "${_level}" "${_c}" "${_prjs}".subs
+
+      # detect SBOM externalRefs referenceLocator (PACKAGE-MANAGER purl)
+      # form is pkg:<type>/<name>@<ver>
+      if [[ "${_c}" =~ ^pkg: ]]; then
+        _c="$(_ph_sanitize_cmp "${_c}")"
+        # this order permits npm:@types... example pattern
+        #[[ ${_c} =~ % ]] && _c=$( urldecode "${_c}" )
+        # for the project csv, make _c look the same as legacy phylum (for now)
+        #   form is <type>:<name>:<ver>
+        # Xshellcheck disable=2001
+        #_c="$(sed 's^/^:^;s/@\([[:digit:]]\)/:v\1/' <<< "${_c/pkg:}" )"
+      fi
+
       _dig4subdep "${_level}" "${_c}" "${_prjs}"
-    done #}
+    done < <( \
+      jq -r '.dependencies[]|.id' "${_prds}" | grep -v -E "(${_SECONDARY_BLACKLIST})" | grep -v -E '(^[[:space:]].*$|^$)' \
+      | sort) #}
 
   # TODO: to rebuild/pass over all previously
-  #       (sub) dependencies found, need to 
+  #       (sub) dependencies found, need to
   #       iterate over "${__component_prjs}".subs
   #       this would revisit all prior subs found
   #       and pick up where prior passed failed
   #       to successfully pull deps. Starting from
-  #       level 0 (${__component_prjs}) would 
+  #       level 0 (${__component_prjs}) would
   #       likely fail as the traveler could see
   #       the top level had already been visited
 }
@@ -2998,7 +3755,8 @@ digraph G {
     graph [ resolution=128, fontname=Arial, fontcolor=blue, fontsize=10, rankdir=LR ];
     node [ fontname=Arial, fontcolor=blue, fontsize=10];
     edge [ fontname=Helvetica, fontcolor=red, fontsize=10 ];
-    $(cat "${1}")
+$(cat "${1}")
+    #end scir digraph $(date +%s)
 }
 _DIGRAPHEOF
 
@@ -3016,7 +3774,7 @@ _DIGRAPHEOF
 # if approaching the ratelimit, sleep until
 # the limit is reset (usually an hour at most)
 #
-__RATELIMIT__="$(mktemp -u)"
+__RATELIMIT__="$(mktemp -u -p . -t rateLim.XXXXXXXXXX)"
 waitRateLimit()
 {
   local _l
@@ -3055,7 +3813,7 @@ _run_ghmeta()
     cp /dev/null "${_joutput}"
 
   [ ! -s "${_joutput}" ] &&
-    _say "running gh api on ${1} to ${_joutput}" && 
+    _say "running gh api on ${1} to ${_joutput}" &&
     waitRateLimit "${_lowerLimit}" &&
     #
     # follow redirects
@@ -3079,10 +3837,10 @@ _run_ghmeta()
     rm -f "${_joutput}.err"
 
   [ ! -s "${_joutput}" ] &&
-    _warn "gh api ${_joutput} is incomplete, consider rebuilding (-f)"
+    _warn "gh api ${_joutput} is incomplete, consider rebuilding (-f cards,meta)"
 
   [ "$(find "${_joutput}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "gh api ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "gh api ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f cards,meta)"
 
   return
 }
@@ -3119,10 +3877,10 @@ _run_criticality_score()
     rm -f "${_joutput}.err"
 
   [ ! -s "${_joutput}" ] &&
-    _warn "criticality score ${_joutput} is incomplete, consider rebuilding (-f)"
+    _warn "criticality score ${_joutput} is incomplete, consider rebuilding (-f cards,crit)"
 
   [ "$(find "${_joutput}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "criticality score ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "criticality score ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f cards,crit)"
 
   return
 }
@@ -3141,14 +3899,13 @@ _run_scorecard()
   { ${BFLAGS[scard]} || ${force_rebuild}; } &&
     cp /dev/null "${_joutput}"
 
-  # sudo redirect is fine here (SC2024)
   # _CAStoreDocker needs to word split (SC2086)
-  # shellcheck disable=2024,2086
+  # shellcheck disable=2086
   [ ! -s "${_joutput}" ] &&
     _prjurl="https://github.com/${1}" &&
-    _say "running scorecard LIVE on ${_prjurl} to ${_joutput}" && 
+    _say "running scorecard LIVE on ${_prjurl} to ${_joutput}" &&
     waitRateLimit "${_lowerLimit}" &&
-    ${_sudo} docker run --rm ${_CAStoreDocker} \
+    docker run --rm ${_CAStoreDocker} \
       -e SCORECARD_V6=true \
       -e "GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN}" "${_OSSFSC}" \
       --format=json --show-details \
@@ -3166,10 +3923,10 @@ _run_scorecard()
     rm -f "${_joutput}.err"
 
   [ ! -s "${_joutput}" ] &&
-    _warn "scorecard ${_joutput} is incomplete, consider rebuilding (-f)"
+    _warn "scorecard ${_joutput} is incomplete, consider rebuilding (-f cards,scard)"
 
   [ "$(find "${_joutput}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "scorecard ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "scorecard ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f cards,scard)"
 
   return
 }
@@ -3191,7 +3948,7 @@ _run_scorecard()
 #       errors seen to date include:
 #         Error failed to clone remote repository
 #         thread 'main' panicked at
-#       also .json files which are 0 bytes where txt 
+#       also .json files which are 0 bytes where txt
 #       have appeared to properly built
 # TODO: run hipcheck using docker volumes to set
 #       "approved/standard" config *.toml values
@@ -3211,52 +3968,50 @@ _run_hipcheck()
   { ${BFLAGS[hcheck]} || ${force_rebuild}; } &&
     cp /dev/null "${_joutput}"
 
-  # sudo redirect is fine here (SC2024)
   # _CAStoreDocker, __MITRHCquiet, _MITRHCrepoCmd, _MITRHCjson need to word split (SC2086)
-  # shellcheck disable=2024,2086
-  [ ! -s "${_joutput}" ] && 
-    _say "running hipcheck on ${_prjurl} to ${_joutput}" && 
+  # shellcheck disable=2086
+  [ ! -s "${_joutput}" ] &&
+    _say "running hipcheck on ${_prjurl} to ${_joutput}" &&
     waitRateLimit "${_lowerLimit}" &&
-    ${_sudo} docker run --rm ${_CAStoreDocker} \
+    docker run --rm ${_CAStoreDocker} \
       -v "${_MITRHCconfig}:/app/config" \
       -v "${_MITRHCscripts}:/app/scripts" \
       -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
       ${_MITRHCquiet} \
       ${_MITRHCrepoCmd} "${_prjurl}" > "${_toutput}" 2>&1 &&
-      (
+      {
         grep -E risk\ rated "${_toutput}" >/dev/null ||
-        (
+        {
           _warn "hipcheck ${_toutput} failed, see file for hints" &&
-          _debug "RETURNING FROM HERE" &&
           return
-        )
-      ) &&
+        }
+      } &&
     waitRateLimit "${_lowerLimit}" &&
-    ${_sudo} docker run --rm ${_CAStoreDocker} \
+    docker run --rm ${_CAStoreDocker} \
       -v "${_MITRHCconfig}:/app/config" \
       -v "${_MITRHCscripts}:/app/scripts" \
       -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
       ${_MITRHCjson} \
       ${_MITRHCquiet} \
       ${_MITRHCrepoCmd} "${_prjurl}" > "${_joutput}" &&
-      ( # mangle the json output to include the rationale from txt file
-        head -n -2 "${_joutput}" ; 
-        b64=$(base64 -w 0 "${_toutput}") ; 
-        echo '  },'; 
-        echo -n '  "rationale": "' ; echo -n "${b64}"; 
+      { # mangle the json output to include the rationale from txt file
+        head -n -2 "${_joutput}" ;
+        b64=$(base64 -w 0 "${_toutput}") ;
+        echo '  },';
+        echo -n '  "rationale": "' ; echo -n "${b64}";
         echo '"'; echo -n '}'
-      ) > "${_joutput}.tmp" &&
+      } > "${_joutput}.tmp" &&
       mv "${_joutput}.tmp" "${_joutput}" &&
       if jq -r '.' "${_joutput}" > /dev/null 2>&1; then rm "${_toutput}"; fi &&
       [ -s "${_toutput}" ] && _warn "json filter error, ${_toutput} not deleted"
 
   [ ! -s "${_joutput}" ] &&
-    _warn "hipcheck ${_joutput} is incomplete, consider rebuilding (-f)" &&
+    _warn "hipcheck ${_joutput} is incomplete, consider rebuilding (-f cards,hcheck)" &&
     [ -s "${_toutput}" ] &&
     _warn "hipcheck ${_toutput} failed, see file for hints"
 
   [ "$(find "${_joutput}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "hipcheck ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "hipcheck ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f cards,hcheck)"
 
   return
 }
@@ -3335,7 +4090,7 @@ _run_mychecks()
         # if unset don't try to count
         # false positive check
         # shellcheck disable=2102
-        [[ -v licenseChecks[restrictive] ]] && 
+        [[ -v licenseChecks[restrictive] ]] &&
           MYcheckScores["${check}"]=$(( $(echo "${licenseChecks[restrictive]}" | tr -cd , | wc -c) + 1))
         _r="$(_find_undetermined_licenses --all)"
         [[ -n "${_r}" ]] && licenseChecks[undetermined]="${_r}"
@@ -3371,8 +4126,8 @@ _count_licenses()
   _say -n "Counting licenses detected by GH API..."
   #
   # find all the GH API jsons which have license info
-  # and grab the SPDX ID, then using sort/uniq -c 
-  # echo back a count=license (sep'd by ':') of the 
+  # and grab the SPDX ID, then using sort/uniq -c
+  # echo back a count=license (sep'd by ':') of the
   # number if times specific SPDX IDs are encountered
   #
   _f="$(find . -name \*_ghapi.json -print0 | \
@@ -3543,7 +4298,7 @@ __police_scorecards()
     do
       [[ $(( EPOCHSECONDS - _start )) -ge _containerTimeout ]] &&
         _warn "killed ${_containerPID}/${_containerCID}: working on $(tr '\0' ' ' <"/proc/${_containerPID}/cmdline")" &&
-        ${_sudo} docker kill "${_containerCID}"
+        docker kill "${_containerCID}"
       sleep "${_politePolice}"
       grep State "/proc/${_scoreRunnerPID}/status" |grep -q stopped && _say "${_scoreRunnerPID} PAUSED breaking" && break
       _containerPID=$(pgrep -a -t "${_PIDtty}" -f "docker run" | grep "${_containerPID}" | awk '{ print $1 }')
@@ -3582,20 +4337,13 @@ build_scorecards()
   [[ -n "${scoreTimeout}" ]] && {
     local _mytty;
     _mytty=$(tty);
-    echo "${$}" | __police_scorecards "${$}" "${scoreTimeout}" "${_mytty/\/dev\/}" & 
+    echo "${$}" | __police_scorecards "${$}" "${scoreTimeout}" "${_mytty/\/dev\/}" &
     __policePID=$! ;
 
-    _warn "Policing for potentially stalled scoring containers on ${_mytty/\/dev\/} (see: -W to change)" ;
+    _info "Policing for potentially stalled scoring containers on ${_mytty/\/dev\/} (see: -W to change)" ;
   }
 
-  grep -E "${_seq}" "${2}" \
-    | cut -d, -f4 \
-    | grep github \
-    | sed  's^HTTPS://^^gi;s^\.git^^gi'  \
-    | cut -d/ -f2,3 \
-    | sort \
-    | uniq \
-    | while :; do #{
+    while :; do #{
       read -r _OwnerRepo
 
       [ -z "${_OwnerRepo}" ] && break
@@ -3637,7 +4385,7 @@ build_scorecards()
       _err="${_localdepdir}"/"$(basename "${_localdepdir}")".sc.json.err
       rm -f "${_err}"
       while :; do #{
-        _run_scorecard "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}" 
+        _run_scorecard "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}"
         if ! grep -q -E -o "(repo unreachable|exceeded a secondary rate limit|TLS handshake timeout)" "${_err}" 2>/dev/null ; then
           break
         fi
@@ -3662,9 +4410,15 @@ build_scorecards()
       rm -f "${_err}"
       _say -n "_"
       local _retry="true"
-      _run_hipcheck "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}" 
+      _run_hipcheck "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}"
       _retry="false"
-  done #}
+    done < <(grep -E "${_seq}" "${2}" \
+    | cut -d, -f4 \
+    | grep github \
+    | sed  's^HTTPS://^^gi;s^\.git^^gi'  \
+    | cut -d/ -f2,3 \
+    | sort \
+    | uniq) #}
 
   #
   # stop the policer if launched and still running and/or collect the zombie
@@ -3701,12 +4455,12 @@ _val_scorecard()
   # the suggested rewrite of the grep -q would
   # make the test to hard to read
   # shellcheck disable=2143
-  [ -s "${_joutput}" ] && 
+  [ -s "${_joutput}" ] &&
     {
       [ "$(jq -r '.checks[]|[ .name,.score ] | @csv' "${_joutput}" | wc -l)" -lt 18 ] ||
       [ -n "$(jq -r '.checks[]|[ .name,.score ] | @csv' "${_joutput}" | grep -E -o "(,$)")" ];
     } &&
-     _warn "scorecard ${_joutput} failed, consider rebuilding (-f)" &&
+     _warn "scorecard ${_joutput} failed, consider rebuilding (-f scores)" &&
      jq -r '.checks[]|[ .name,.score ] | @csv' "${_joutput}" | wc -l &&
      jq -r '.checks[]|[ .name,.score ] | @csv' "${_joutput}" | grep -E "(,$)" &&
      echo /dev/null "${_joutput}"
@@ -3728,12 +4482,12 @@ _val_hipcheck()
     #_warn "hipcheck skipping validation on ${1}, del ${_joutput}.skip to undo" &&
     return
 
-  [ -s "${_joutput}" ] && 
+  [ -s "${_joutput}" ] &&
     {
-      [ "$(jq -r '.recommendation.kind' "${_joutput}")" == "null" ] || 
+      [ "$(jq -r '.recommendation.kind' "${_joutput}")" == "null" ] ||
       [ "$(jq -r '.rationale' "${_joutput}")" == "null" ];
-    } && 
-    _warn "hipcheck ${_joutput} failed, consider rebuilding (-f)"
+    } &&
+    _warn "hipcheck ${_joutput} failed, consider rebuilding (-f scores)"
 
   return
 }
@@ -3751,14 +4505,7 @@ validate_scorecards()
   _seq='^[0-9]+,'
   [[ ${2} != "all" ]] && _seq="^($(seq --separator='|' 0 "${2}")),"
 
-  grep -E "${_seq}" "${1}" \
-    | cut -d, -f4 \
-    | grep github\
-    | sed  's^HTTPS://^^gi;s^\.git^^gi' \
-    | cut -d/ -f2,3\
-    | sort \
-    | uniq \
-    | while :; do #{
+    while :; do #{
       read -r _OwnerRepo
 
       [ -z "${_OwnerRepo}" ] && break
@@ -3769,10 +4516,16 @@ validate_scorecards()
       _localdepdir="deps.d/$(mkdepdir "${_OwnerRepo}")"
       mkdir -p "${_localdepdir}"
 
-      _val_scorecard "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}" 
-      _val_hipcheck "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}" 
+      _val_scorecard "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}"
+      _val_hipcheck "${_OwnerRepo}" "$(basename "${_localdepdir}")" "${_localdepdir}"
 
-    done #}
+    done < <(grep -E "${_seq}" "${1}" \
+    | cut -d, -f4 \
+    | grep github\
+    | sed  's^HTTPS://^^gi;s^\.git^^gi' \
+    | cut -d/ -f2,3\
+    | sort \
+    | uniq) #}
 
   _say ""
   return
@@ -3790,7 +4543,7 @@ coalesce_scorecards()
 
   while :; do #{
       read -r _OwnerRepo
-    
+
       [ -z "${_OwnerRepo}" ] && break
 
       [ "${_OwnerRepo}" = "${__NULLGH__}" ] && continue
@@ -3812,13 +4565,13 @@ coalesce_scorecards()
       #
       # word splitting is necessary for sort to work properly
       # shellcheck disable=2046
-      ${coalesce_header} && 
-        (
+      ${coalesce_header} &&
+        {
           echo -n "Component," &&
           echo -n $(jq -r '.checks[]|[ .name,.score ] | @csv' "${_SCinput}" | sort | cut -d, -f1 | sed 's/^"//g;s/"$/,/g') | sed 's/, /,/g;s/,$//g' && echo -n "," &&
           echo -n $( (jq -r '.passing[]| [.analysis,.value ]|@csv' "${_HCinput}"; jq -r '.failing[]| [.analysis,.value ]|@csv' "${_HCinput}";  jq -r '.errored[]| [.analysis,"-1"]|@csv' "${_HCinput}") | sort | cut -d, -f1 | sed 's/^"//g;s/"$/,/g' | sed 's/, /,/g;s/,$//g') | sed 's/ /,/g' &&
           echo ""
-        ) > "${3}" &&
+        } > "${3}" &&
         coalesce_header="false"
 
       # CSV row (the values)
@@ -3830,7 +4583,7 @@ coalesce_scorecards()
       #
       # word splitting is necessary for sort to work properly
       # shellcheck disable=2046
-      (
+      {
         echo -n "$(basename "${_localdepdir}"),"
         echo -n $(jq -r '.checks[]|[ .name,.score ] | @csv' "${_SCinput}" | sort | cut -d, -f2 | sed 's/^"//g;s/"$/,/g') | sed 's/ /,/g;s/,$//g'
         echo -n ","
@@ -3840,13 +4593,53 @@ coalesce_scorecards()
           echo -n "-1,-1,-1,-1,-1,-1,-1,-1,-1"
         fi
         echo ""
-      ) >> "${3}"
+       } >> "${3}"
 
-  done < <(cut -d, -f4 "${2}" | grep github| sed  's^HTTPS://^^gi;s^\.git^^gi' | cut -d/ -f2,3| sort | uniq) #}
+  done < <( \
+    cut -d, -f4 "${2}" \
+    | grep github | sed  's^HTTPS://^^gi;s^\.git^^gi' | cut -d/ -f2,3 \
+    | sort | uniq) #}
 
   _say ""
   [ "${_missingJson}" -gt "0" ] && _warn "coalesce_scorecards: counted ${_missingJson} missing project scorecard(s)"
   [ ! -s "${3}" ] && _warn "coalesce_scorecards: no scores from scorecard or hipcheck found." && cp /dev/null "${3}"
+  return
+}
+
+_phy_prj_cache()
+{
+  _say -n "checking Phylum project caches..."
+
+  { ${BFLAGS[caches]} || ${force_rebuild}; } &&
+    _say -n "forced clearing PH project caches..." && rm -f "${__phy_prjs}"
+
+  [[ "${puri}" != "${__NULLPURI__}" ]] && echo "${puri},$(makePuri "${puri}")" > "${__phy_prjs}"
+
+  #
+  # TODO: fix paginate.limit, this will work for phylum accounts
+  #       with 100 or less projects, any more and a loop is
+  #       needed to retrieve all the project ids
+  #
+  [ ! -f "${__phy_prjs}" ] &&
+    _say -n "building Phylum project caches..." &&
+      {
+        curl --silent --request GET \
+          --url 'https://api.phylum.io/api/v0/projects/?paginate.limit=100' \
+          --header 'accept: application/json' \
+          --header "authorization: Bearer $(phylum auth token --bearer)" \
+          -o "${__phy_prjs}" \
+      ||
+        _fatal "phylum-api project pre-cache failed.";
+      };
+
+  [ ! -f "${__phy_prjs}" ] || [ ! -s "${__phy_prjs}" ] &&
+    _fatal "${__phy_prjs} is missing or empty"
+
+  _say "OK"
+
+  [ "$(find "${__phy_prjs}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
+    _warn "${__phy_prjs} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
+
   return
 }
 
@@ -3871,17 +4664,14 @@ build_caches()
   ${__ghSKIP} && echo "<html></html>" > "${__ghhtml}"
 
   [ ! -f "${__ghhtml}" ] && _say -n "building GH html..." &&
-  (
-    (
+    {
       curl --silent \
         -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
         -H "Accept: application/vnd.github+json" "${__gh}" \
-        -o "${__ghhtml}"
-    ) || 
-    (
-      _fatal "gh html pre-cache failed."
-    )
-  )
+        -o "${__ghhtml}" \
+    ||
+      _fatal "gh html pre-cache failed.";
+    };
 
   [ ! -f "${__ghhtml}" ] || [ ! -s "${__ghhtml}" ] &&
     _fatal "${__ghhtml} is missing or empty"
@@ -3891,7 +4681,7 @@ build_caches()
   _say "OK"
 
   [ "$(find "${__ghhtml}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${__ghhtml} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "${__ghhtml} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
 
   #########
   # pre-cache api.github
@@ -3905,17 +4695,14 @@ build_caches()
   ${__ghSKIP} && echo "{ }" > "${__ghrjson}"
 
   [ ! -f "${__ghrjson}" ] && _say -n "building GH caches..." &&
-  (
-    (
+    {
       curl --silent \
         -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
         -H "Accept: application/vnd.github+json" "${__ghr}" \
-        -o "${__ghrjson}"
-    ) || 
-    (
-      _fatal "gh-api pre-cache failed."
-    )
-  )
+        -o "${__ghrjson}" \
+    ||
+      _fatal "gh-api pre-cache failed.";
+    };
 
   [ ! -f "${__ghrjson}" ] || [ ! -s "${__ghrjson}" ] &&
     _fatal "${__ghrjson} is missing or empty"
@@ -3925,7 +4712,7 @@ build_caches()
   _say "OK"
 
   [ "$(find "${__ghrjson}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${__ghrjson} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "${__ghrjson} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
 
   #########
   # pre-cache countribor counts from api.github
@@ -3941,8 +4728,7 @@ build_caches()
 
   [ ! -f "${__ghrcontribjson}" ] &&
     _say -n "building GH contributor caches..." &&
-    (
-      (
+      {
         cp /dev/null "${__ghrcontribjson}"
         #
         # 500 contrib counter limit
@@ -3953,13 +4739,11 @@ build_caches()
              curl --silent \
                -H "Accept: application/vnd.github+json" \
                -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
-               "${__ghr}/contributors?per_page=100&page=${pg}" 
-          done >> "${__ghrcontribjson}"
-      ) ||
-      (
-       _fatal "gh-api contrib pre-cache failed."
-      )
-    )
+               "${__ghr}/contributors?per_page=100&page=${pg}"
+          done >> "${__ghrcontribjson}" \
+       ||
+       _fatal "gh-api contrib pre-cache failed.";
+      };
 
   [ ! -f "${__ghrcontribjson}" ] &&
     _fatal "${__ghrcontribjson} is missing or empty"
@@ -3969,7 +4753,7 @@ build_caches()
   _say "OK"
 
   [ "$(find "${__ghrcontribjson}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${__ghrcontribjson} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "${__ghrcontribjson} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
 
   #########
   # pre-cache SBOM
@@ -3983,68 +4767,152 @@ build_caches()
   ${__ghSKIP} && echo "{ }" > "${__ghrsbomjson}"
 
   [ ! -f "${__ghrsbomjson}" ] && _say -n "building GH SBOM caches..." &&
-  (
-    (
-      curl --silent \
+    {
+      curl --location --silent --write-out "%{http_code}" \
         -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
         -H "Accept: application/vnd.github+json" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
         "${__ghr}/dependency-graph/sbom" \
-        -o "${__ghrsbomjson}"
-    ) ||
-    (
-      _fatal "gh-api SBOM pre-cache failed."
-    )
-  )
+        -o "${__ghrsbomjson}" >/dev/null \
+     ||
+      _fatal "gh-api SBOM pre-cache failed ${?}.";
+    };
 
-  [ ! -f "${__ghrsbomjson}" ] || [ ! -s "${__ghrsbomjson}" ] &&
-    _fatal "${__ghrsbomjson} is missing or empty"
+  { ! jq -r '.' "${__ghrsbomjson}" > /dev/null || [ ! -f "${__ghrsbomjson}" ] || [ ! -s "${__ghrsbomjson}" ]; } &&
+    _fatal "${__ghrsbomjson} is corrupt, missing or empty"
 
   if grep -q Bad\ credentials "${__ghrsbomjson}"; then _fatal "${__ghrsbomjson} bad GITHUB_AUTH_TOKEN credentials"; fi
 
   _say "OK"
 
   [ "$(find "${__ghrsbomjson}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${__ghrsbomjson} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+    _warn "${__ghrsbomjson} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
+
+  #########
+  #
+  [[ "${dependency_type}" == "${__SBOM__}" ]] && {
+    # in lieu of _sbom_prj_cache as this SBOM is the only project for this component
+    if [[ "${dependency_src^^}" == "${__GITHUB__}" ]]; then
+      echo "${dependency_type},${__ghrsbomjson},$(md5sum "${__ghrsbomjson}" | sed 's/  /,/')" > "${__phy_prjs}"
+      dependency_src="${__ghrsbomjson}"
+    else
+      echo "${dependency_type},${dependency_src},$(md5sum "${dependency_src}" | sed 's/  /,/')" > "${__phy_prjs}"
+    fi
+  }
 
   #########
   # pre-cache phylum projects
-  _say -n "checking Phylum project caches..."
-
-  { ${BFLAGS[caches]} || ${force_rebuild}; } &&
-    _say -n "forced clearing PH project caches..." && rm -f "${__phy_prjs}"
-
-  [[ "${puri}" != "${__NULLPURI__}" ]] && echo "${puri},$(makePuri "${puri}")" > "${__phy_prjs}"
-
-  #
-  # TODO: fix paginate.limit, this will work for phylum accounts
-  #       with 100 or less projects, any more and a loop is
-  #       needed to retrieve all the project ids
-  #
-  [ ! -f "${__phy_prjs}" ] &&
-    _say -n "building Phylum project caches..." &&
-    (
-      (
-        curl --silent --request GET \
-          --url 'https://api.phylum.io/api/v0/projects/?paginate.limit=100' \
-          --header 'accept: application/json' \
-          --header "authorization: Bearer $(phylum auth token --bearer)" \
-          -o "${__phy_prjs}"
-      ) ||
-      (
-        _fatal "phylum-api project pre-cache failed."
-      )
-    )
-
-  [ ! -f "${__phy_prjs}" ] || [ ! -s "${__phy_prjs}" ] &&
-    _fatal "${__phy_prjs} is missing or empty"
-
-  _say "OK"
-
-  [ "$(find "${__phy_prjs}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
-    _warn "${__phy_prjs} over ${_cache_days}(s) days old, consider rebuilding (-f)"
+  [[ "${dependency_type}" == "${__PHYLUM__}" ]] && {
+    _phy_prj_cache
+  }
 
   return
+}
+
+_mk_grype_xform_pipeline()
+{
+cat <<-_GYXPIPELINEEOF > "${1}"
+jq -r 'if (.sbom) then .sbom else . end' "\${1}"| ${_GRYPEC} -o json | jq -r '
+.matches[]? |
+{
+  "title":(.artifact.purl+" version "+.matchDetails[0].found.versionConstraint),
+  "tag":((if (.vulnerability.severity?)
+          then
+            (if .vulnerability.severity | ascii_downcase == "critical" then "CV-"
+             elif .vulnerability.severity | ascii_downcase == "high" then "HV-"
+             elif .vulnerability.severity | ascii_downcase == "medium" then "MV-"
+             else "LV-" end)
+          else "UN-" end)+
+          .vulnerability.id),
+  "id":.artifact.purl,
+  "severity":( if (.vulnerability.severity?) then .vulnerability.severity | ascii_downcase else "Not Provided" end ),
+  "description":(
+          "### Overview\n\n"+(.vulnerability.description // "None Provided")+":__BR__:**Grype Data Source**: "+(.vulnerability.dataSource // "None Provided")+
+           "\n\n### Recommendation\n\nFix available in "+(if (.vulnerability.fix.versions|length > 0) then .vulnerability.fix.versions|join(", ") else "None Provided" end)+
+           "\n\n### References\n\n"+(if (.relatedVulnerabilities|length > 0) then .relatedVulnerabilities[].urls|join(":__BR__:") else "None Provided" end // "NO URL")+
+           "\n\n**CVE**: "+
+           ((if ((.vulnerability.id) and (.vulnerability.id | startswith ("CVE"))) then .vulnerability.id
+             else .relatedVulnerabilities[0].id // "None Provided" end))+
+             " - **CVSS**: "+(.vulnerability.cvss[0]?.metrics.baseScore|tostring)+
+             "\n"
+         ),
+  "details": {
+  "type":"vulnerability",
+  "cvss":.vulnerability.cvss[0]?.metrics.baseScore,
+  "cvss_vector":(if (.vulnerability.cvss|length >0) then [ .vulnerability.cvss[].vector ] | @csv
+                 else "None Provided" end)
+    },
+  "domain":"vulnerability",
+  "impact":( if (.vulnerability.severity?) then .vulnerability.severity | ascii_downcase else "Not Provided" end ),
+  "riskType":"vulnerabilities"
+}
+'
+_GYXPIPELINEEOF
+
+  return 0
+}
+
+#
+# runs grype on sbom files and transforms the generated
+# grype results to a json report format for scir-oss report
+#
+# \*_sbom.json --> \*_sbom_grype.json
+#
+# TODO: make this unify all \*_sbom.json files into a
+#       comprehensive grype report
+#
+grype_issues()
+{
+  local _seq
+  local _cmp
+  local _c
+  local _depdir
+  local __gyxform
+  local __gxpipeLine
+  local __rootSBOM
+
+  __gyxform=$(mktemp -u -p . -t gyxF.XXXXXXXXXX) && cp /dev/null "${__gyxform}"
+
+  __gxpipeLine="$(mktemp -u -p . -t gyxP.XXXXXXXXXX)"
+  _mk_grype_xform_pipeline "${__gxpipeLine}"
+
+  #
+  # operates like scorecards, runs off levels in prjs.csv
+  #
+  _seq='^[0-9]+,'
+  [[ ${issueDepth} != "all" ]] && _seq="^($(seq --separator='|' 0 "${issueDepth}")),"
+
+  # ^0, is special - always do it it's SBOM is known
+  IFS="," read -r _c __rootSBOM _m _o < "${__phy_prjs}"; unset _m _o
+  ! { [[ "${_c}" == "SBOM" ]] && [[ -s "${__rootSBOM}" ]]; } && _debug "no root SBOM for grype issues" && return
+
+  _say -n "running ${_GRYPEC} scan for ${1} from ${2} to level ${issueDepth}..."
+
+  # does the _sbom_grype need to be built
+  { [[ "${__rootSBOM}" -nt "${1}_allIssues.json" ]] || [[ ! -s "${1}_sbom_grype.json" ]] ; } &&
+    bash "${__gxpipeLine}" "${__rootSBOM}" > "${__gyxform}" && _say -n "$(grep -c \"tag "${__gyxform}")"
+
+  while read -r _cmp;
+  do
+    _c="$(mkdepdir "${_cmp}")"
+    _depdir="subdeps.d/${_c}"
+    [[ ! -d "${_depdir}" ]] && _depdir="deps.d/${_c}" && [[ ! -d "${_depdir}" ]] && continue
+    [[ ! -f "${_depdir}/${_c}_ghapi_sbom.json" ]] && continue
+    # does the _sbom_grype need to be built
+    { [[ "${_depdir}/${_c}_ghapi_sbom.json" -nt "${1}_allIssues.json" ]] ; } &&
+      bash "${__gxpipeLine}" "${_depdir}/${_c}_ghapi_sbom.json" >> "${__gyxform}" &&
+      _say -n "." && continue
+    _say -n "^"
+  done < <(grep -E "${_seq}" "${2}" \
+          | grep github.com \
+          | cut -d, -f2)
+
+  mv "${__gyxform}" "${1}_sbom_grype.json"
+  rm -f "${__gxpipeLine}"
+
+  _say "$(grep -c \"tag "${1}_sbom_grype.json"), OK"
+
+  return 0
 }
 
 consolidate_issues()
@@ -4054,8 +4922,35 @@ consolidate_issues()
   local _liseq
   local _site
   local _id
+  local __ghapiFiles
+  local __phdepFiles
+  local __grypeFiles
 
   cp /dev/null "${3}"
+
+  # do only if grype is installed
+  [[ ! ${_grype_ver} == "unknown" ]] && {
+    { ${BFLAGS[issues]} || ${force_rebuild} ; } && cp /dev/null "${2}_sbom_grype.json"
+
+    grype_issues "${2}" "${4}"
+  }
+
+  #
+  # speedup
+  #
+  _say -n "gather issue files..."
+  __ghapiFiles=$(mktemp -u -p . -t ghapi.XXXXXXXXXX) &&
+    find . -name \*_ghapi.json -print0 > "${__ghapiFiles}"
+
+  ! grep -q ^SBOM, "${__phy_prjs}" && { _say -n " ..."
+    __phdepFiles=$(mktemp -u -p . -t phdep.XXXXXXXXXX)
+      find . \( -name \*_dep_prds.json -o -name \*deps.json \) -print0 > "${__phdepFiles}"; }
+
+  _say -n " ..."
+  __grypeFiles=$(mktemp -u -p . -t grype.XXXXXXXXXX) &&
+    find . -maxdepth 1 \( -name \*_sbom_grype.json \) -print0 > "${__grypeFiles}"
+  _say "OK"
+
 
   for __risk__ in "vulnerabilities" "maliciousCodeRisk" "engineeringRisk" "licenseRisk" "authorsRisk"
   do #{
@@ -4066,24 +4961,22 @@ consolidate_issues()
     # before the slurp below ensures there is an .issues[]
     # key in the event the key is not present in the json
     #
-    [[ "${__risk__}" == "licenseRisk" ]] && _liseq=0 && find . -name \*_ghapi.json -print0 | \
-      xargs -0 \
-      jq -r '.git_url,.license.spdx_id' | \
+    [[ "${__risk__}" == "licenseRisk" ]] && _say "collecting copy-left license issues..." && _liseq=0 && \
       while read -r __grepo; read -r __lic
       do
         ((_liseq++));
-	#
-	# this RE for the grep is based on results from the licenseDB.json file
-	# if it changes, this RE need to change. This RE will only match those
-	# licenses from the DB file which have the properties in the query:
-	# jq -r '.licenses[]|\
-	#  select (.properties.discloseSource == "true" or .properties.networkUseIsDistribution == "true")|\
-	#  .spdxId' ../settings/mychecks/licenseDB.json
-	# TODO: figure a way to auto-gen this RE
-	#
-	! grep -s -q -E '(MPL|GPL|OSL|MS-RL|EUPL|LPPL|EPL)' <<<"${__lic}" && continue
+        #
+        # this RE for the grep is based on results from the licenseDB.json file
+        # if it changes, this RE need to change. This RE will only match those
+        # licenses from the DB file which have the properties in the query:
+        # jq -r '.licenses[]|\
+        #  select (.properties.discloseSource == "true" or .properties.networkUseIsDistribution == "true")|\
+        #  .spdxId' ../settings/mychecks/licenseDB.json
+        # TODO: figure a way to auto-gen this RE
+        #
+        ! grep -s -q -E '(MPL|GPL|OSL|MS-RL|EUPL|LPPL|EPL)' <<<"${__lic}" && continue
         _site=$(sed 's^git://^^g;s^.git$^^g' <<<"${__grepo}")
-	_id=$(grep -i --fixed-string "${_site}" ./*_dep_prjs.csv | cut -d, -f2 | tr  '\n' ';' | sed 's/;$//g')
+        _id=$(grep -i --fixed-string "${_site}" ./*_dep_prjs.csv | cut -d, -f2 | tr  '\n' ';' | sed 's/;$//g')
         cat <<-_MYLICEOF
   {
     "tag": "HL$(printf %.4d "${_liseq}")",
@@ -4097,22 +4990,31 @@ consolidate_issues()
     "riskType": "licenseRisk"
   }
 _MYLICEOF
-      done | \
+      done < <(xargs -a "${__ghapiFiles}" -0 jq -r '.git_url,.license.spdx_id' ) \
+      | jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
+    #
+    # TODO: test if __SBOM__ before this find and __PHYLUM__ for the next find
+    #
+    [[ "${__risk__}" == "vulnerabilities" ]] && _say "collecting grype vulnerabilities..." && \
+      xargs -a "${__grypeFiles}" -0 \
         jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
+
     # jq's arg _risk in quotes is NOT to be a shell expansion
     # false positive https://github.com/koalaman/shellcheck/issues/1160
+    #
     # shellcheck disable=2016
-    find . \( -name \*_dep_prds.json -o -name \*deps.json \) -print0 | \
-      xargs -0 \
+    "${_doPhylum}" && _say "collecting Phylum ${__risk__} issues..." && xargs -a "${__phdepFiles}" -0 \
       jq -r --arg _risk "${__risk__}" '
         .
         | if (.issues) then . else . + {"issues": []} end
         | if (.dependencies) then . else . + {"dependencies": [ { "issues":[] } ]} end
-        | .issues[],.dependencies[].issues[]
+        | .issues[]?,.dependencies[].issues[]?
         | select(.riskType==$_risk)
       ' | \
           jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
   done #}
+
+  rm -f "${__ghapiFiles}" "${__phdepFiles}" "${__grypeFiles}"
 
   return 0
 }
@@ -4132,7 +5034,7 @@ _do_issues_reports()
   #       keys are not in the unique_by
   #
   # in prep for an HTML presentation, the json structs are
-  # converted to tables. the data in the table cells are 
+  # converted to tables. the data in the table cells are
   # filtered using jq's @html filter to create HTML entities
   # furthermore, the curated descriptions at phylum are
   # roughly converted from Markdown to HTML headers for
@@ -4154,7 +5056,7 @@ _do_issues_reports()
         map("<tr><td>" + (.title|@html) + "</td><td>" + (.tag|@html) + "</td><td>" + (.description|@html)  + "</td></tr>")|["<h2>" + $_label + " " + $_risk + "</h2><table><tr><th>Package</th><th>Impact</th><th>Description</th></tr>"] + . + ["</table>"] |
         .[]
       ' | \
-      sed 's/\\/\&#92;/g;s^### Overview^<h4>Overview</h4>^g;s^### Proof of Concept^<h4>Proof of Concept</h4>^g;s^### Importance^<h4>Importance</h4>^g;s^### Description^<h4>Description</h4>^g;s^### Summary^<h4>Summary</h4>^g;s^### Impact^<h4>Impact</h4>^g;s^###  Affected Configuration^<h4>Affected Configuration</h4>^g;s^### Patches^<h4>Patches</h4>^g;s^### Workarounds^<h4>Workarounds</h4>^g;s^### For more information^<h4>For more information</h4>^g;s^### Recommendation^<h4>Recommendation</h4>^g;s^### References^<h4>References</h4>^g;s^\*\*CVE\*\*:^<h4>CVE:</h4>^g;s^\*\*CVSS\*\*:^<b>CVSS:</b>^g;' >> "${2}_vulmalrep.html"
+      sed 's/\\/\&#92;/g;s^### Overview^<h4>Overview</h4>^g;s^### Proof of Concept^<h4>Proof of Concept</h4>^g;s^### Importance^<h4>Importance</h4>^g;s^### Description^<h4>Description</h4>^g;s^### Summary^<h4>Summary</h4>^g;s^### Impact^<h4>Impact</h4>^g;s^###  Affected Configuration^<h4>Affected Configuration</h4>^g;s^### Patches^<h4>Patches</h4>^g;s^### Workarounds^<h4>Workarounds</h4>^g;s^### For more information^<h4>For more information</h4>^g;s^### Recommendation^<h4>Recommendation</h4>^g;s^### References^<h4>References</h4>^g;s^\*\*CVE\*\*:^<h4>CVE:</h4>^g;s^\*\*\([[:print:]].*\)\*\*^<b>\1</b>^g;s^:__BR__:^<br/>^g;' >> "${2}_vulmalrep.html"
   done #}
 
   return 0
@@ -4177,6 +5079,7 @@ produce_BoE()
   ! _chksum="$(build_BoE_tarball "${_c}")" && _warn "failed to build the BoE archive (.tgz)" && return 1
 
   # checksum the tarball
+  # since tarball has ':' in the name use 'tar tvfz <boefile>.tgz --force-local'
   ! mv "${_c}-scir-p4r-boe.tgz" \
        "${_c}-scir-p4r-boe_sha256:${_chksum}.tgz" && _warn "rename failed" && return 1
 
@@ -4198,7 +5101,7 @@ build_BoE_tarball()
 
   [[ ! -f ../"${1}-scir-p4r-boe.tgz" ]] && _say "abandoning tarball" && return 1
 
-  ! tar cfz ../"${1}-scir-p4r-boe.tgz" --exclude="*scir-p4r-boe*.tgz*" -C .. "${1}"/ && \
+  ! tar hcfz ../"${1}-scir-p4r-boe.tgz" --exclude="*scir-p4r-boe*.tgz*" -C .. "${1}"/ && \
     _warn "tar failed" && _rc=1;
 
   ! mv ../"${1}-scir-p4r-boe.tgz" . && \
@@ -4288,6 +5191,10 @@ check_scir_files()
               "${1}_scir.html" \
               "${1}"_job_*.json
   do
+    # __SBOM__ projects do not have a _job_ file
+    #
+    [[ ${_fil} =~ _job_ ]] && [[ "${dependency_type}" == "${__SBOM__}" ]] && continue
+
     [ ! -f "${_fil}" ] &&
       _err "required file, ${_fil}: not found for ${1}" &&
       _rc=1;
@@ -4306,9 +5213,10 @@ do_runtime_localizations()
   readonly _OSSFSC="${_LOCAL_OSSFSC:-gcr.io/openssf/scorecard:latest}"
   readonly _OSSFCS="${_LOCAL_OSSFCS:-${HOME}/go/bin/criticality_score}"
   readonly _MITRHC="${_LOCAL_MITRHC:-mitre/hipcheck:latest}"
+  readonly _GRYPEC="grype"
 
   _LOCAL_LANG="${_LOCAL_LANG:-en}"
-  _LOCAL_CRITERIA_DESC="${_LOCAL_CRITERIA_DESC:=reportWriter_criteria_desc.lib.sh.${_LOCAL_LANG}}"
+  _LOCAL_CRITERIA_DESC="${_LOCAL_CRITERIA_DESC:-reportWriter_criteria_desc.lib.sh.${_LOCAL_LANG}}"
 
   ! [[ ${_LOCAL_CRITERIA_DESC:0:1} == '/' ]] && _LOCAL_CRITERIA_DESC="${_OSSSCIRsettings}/scir-oss/${_LOCAL_CRITERIA_DESC}"
 
@@ -4327,7 +5235,7 @@ do_runtime_localizations()
   source "${_LOCAL_CRITERIA_DESC}"
 
   ORGLOOKUP_LABEL="${_LOCAL_ORG_TYPE_LOOKUP_LABEL:-logistics database D-U-N-S code}"
-  
+
   return 0;
 }
 
@@ -4354,6 +5262,7 @@ check_runtime()
       _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
       _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
       _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
+      [[ -f "${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv" ]] && _OSSSCIRrepoResolveDB="${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv"
     fi
   }
 
@@ -4364,7 +5273,7 @@ check_runtime()
   #
   # the binaries
   #
-  for cmd in bc jq curl docker base64 phylum iconv "${_OSSFCS}"
+  for cmd in ps pgrep bc jq curl docker base64 phylum iconv shuf sha256sum "${_OSSFCS}"
   do
     [ -z "$(command -v "${cmd}")" ] &&
       _err "required command, ${cmd}: not found in path or not installed" &&
@@ -4374,9 +5283,10 @@ check_runtime()
   #
   # the docker images
   #
-  if ! ${_sudo} docker image ls > /tmp/dimg.${$} 2>&1; then
-    _warn "docker: sudo required see /tmp/dimg.${$} for more details"
-    _sudo="sudo -E"
+  rm -f ./scir-dimg.*
+  if ! docker image ls > ./scir-dimg.${$} 2>&1; then
+    _err "docker: sudo required see '$(realpath ./scir-dimg.${$})' for more details (e.g, sudo -E docker ...)"
+    _rc=1
   fi
 
   local -n dimg
@@ -4384,35 +5294,40 @@ check_runtime()
   do
     _info "config docker image ${!dimg}=${dimg}"
     local _dimgFile
-    _dimgFile=$(${_sudo} docker image ls ${dimg} | grep -E -v "REPOSITORY")
+    _dimgFile=$(docker image ls ${dimg} | grep -E -v "REPOSITORY")
     [ -z "${_dimgFile}" ] &&
       _err "required docker image, ${dimg}: not found" &&
       _rc=1
   done
 
   local -n _sp
-  for _sp in _MITRHCconfig _MITRHCscripts _OSSSCIRlicenseDB
+  for _sp in _OSSSCIRsettings _MITRHCconfig _MITRHCscripts _OSSSCIRlicenseDB _OSSSCIRrepoResolveDB
   do
     _info "config setting ${!_sp}=${_sp}"
-    [[ ! -r "${_sp}" ]] && _err "can't find path/file for ${!_sp}=${_sp}" && _rc=1
+    [[ -v ${!_sp} ]] && [[ ! -r "${_sp}" ]] && _err "can't find path/file for ${!_sp}=${_sp}" && _rc=1
+  done
+
+  for _sp in _PRIMARY_BLACKLIST _SECONDARY_BLACKLIST _TERTIARY_BLACKLIST
+  do
+    [[ ${_sp} != "${_NULL_BLACKLIST_}" ]] && _info "env setting ${!_sp}='${_sp}'"
   done
 
   #
   # made sure these are all readable by container processes, error off if otherwise
   #
-  [[ (( $(find "${_MITRHCconfig}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCconfig}, use chmod o+rx ${_MITRHCconfig}/" && _rc=1
-  [[ (( $(find "${_MITRHCconfig}" -type f -perm -o=r|wc -l) -lt 5 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCconfig}, use chmod o+r ${_MITRHCconfig}/*" && _rc=1
-  [[ (( $(find "${_MITRHCscripts}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod o+rx ${_MITRHCscripts}/" && _rc=1
-  [[ (( $(find "${_MITRHCscripts}" -type f -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod o+r ${_MITRHCscripts}/*" && _rc=1
-  [[ (( $(find "${_OSSSCIRlicenseDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRlicenseDB}" && _rc=1
-
+  [[ (( $(find "${_MITRHCconfig}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCconfig}, use chmod go+rx ${_MITRHCconfig}/" && _rc=1
+  [[ (( $(find "${_MITRHCconfig}" -type f -perm -o=r|wc -l) -lt 5 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCconfig}, use chmod go+r ${_MITRHCconfig}/*" && _rc=1
+  [[ (( $(find "${_MITRHCscripts}" -type d -perm -o=rx|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod go+rx ${_MITRHCscripts}/" && _rc=1
+  [[ (( $(find "${_MITRHCscripts}" -type f -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_MITRHCscripts}, use chmod go+r ${_MITRHCscripts}/*" && _rc=1
+  [[ (( $(find "${_OSSSCIRlicenseDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRlicenseDB}, use chmod go+r ${_OSSSCIRlicenseDB}" && _rc=1
+  [[ -v _OSSSCIRrepoResolveDB ]] && [[ (( $(find "${_OSSSCIRrepoResolveDB}" -perm -o=r|wc -l) -lt 1 )) ]] && _err "path/files modes not readable by containers for ${_OSSSCIRrepoResolveDB}, use chmod go+r ${_OSSSCIRrepoResolveDB}" && _rc=1
   #
   # grab version numbers for report metadata
   #
-  _ossf_scorecard_ver="$(${_sudo} docker run --rm "${_OSSFSC}" version 2>&1 | grep GitVersion | cut -d: -f2 | sed 's/ //g')"
+  _ossf_scorecard_ver="$(docker run --rm "${_OSSFSC}" version 2>&1 | grep GitVersion | cut -d: -f2 | sed 's/ //g')"
   [[ -z "${_ossf_scorecard_ver}" ]] && _warn "could not determine OSSF/Scorecard version" && _ossf_scorecard_ver="unknown"
 
-  _mitre_hipcheck_ver="$(${_sudo} docker run --rm "${_MITRHC}" --version | cut -d\  -f2)"
+  _mitre_hipcheck_ver="$(docker run --rm "${_MITRHC}" --version | cut -d\  -f2)"
   [[ -z "${_mitre_hipcheck_ver}" ]] && _warn "could not determine MITRE Hipcheck version" && _mitre_hipcheck_ver="unknown"
   # assume latest
   _MITRHCquiet="--verbosity quiet"
@@ -4432,6 +5347,14 @@ check_runtime()
 
   _ossf_critscorecard_ver="$(${_OSSFCS} -depsdev-disable https://github.com/ 2>&1 | grep criticality_score@ | cut -d@ -f2|cut -d/ -f1|sort|uniq)"
   [[ -z "${_ossf_critscorecard_ver}" ]] && _warn "could not determine OSSF/criticality_score version" && _ossf_critscorecard_ver="unknown"
+
+  # not required (yet)
+  # grype appears to auto update when first run specifically for a check
+  # so ignore out of date errors at this step
+  _grype_ver=""
+  [[ -n "$(command -v "${_GRYPEC}")" ]] &&
+    _grype_ver="$({ "${_GRYPEC}" --version | cut -d\  -f2; GRYPE_DB_VALIDATE_AGE=false "${_GRYPEC}" db status -o json | jq -r '"db",.schemaVersion,"built on",.built' ; } | tr '\n' ' ')"
+  [[ -z "${_grype_ver}" ]] && _warn "could not determine grype version (vul reports skipped)" && _grype_ver="unknown"
 
   #
   #
@@ -4455,17 +5378,19 @@ check_runtime()
   # shellcheck disable=2043
   for eVar in GITHUB_AUTH_TOKEN
   do
-    if [[ -z "${!eVar}" ]]; then
+    ! ${BoEonly} && if [[ -z "${!eVar}" ]]; then
       _err "required env variable, ${eVar}: not set"
       _rc=1
     fi
   done
 
-  local _bearer
-  if ! _bearer=$(phylum auth token --bearer); then _say "got token? ${?}"; fi
-  [ -z "${_bearer}" ] &&
+  [[ "${dependency_type}" == "${__PHYLUM__}" ]] && {
+    local _bearer;
+    if ! _bearer=$(phylum auth token --bearer); then _err "got phylum token? ${?}" && _rc=1; fi
+    [ -z "${_bearer}" ] &&
       _err "required phylum bearer token not available, see 'phylum auth status' for details" &&
-      _rc=1
+      _rc=1;
+  }
 
   #
   # the command line
@@ -4474,16 +5399,18 @@ check_runtime()
     _err "required local project name not specified (e.g., -C fleetth)" &&
     _rc=1
 
-  [ -z "${phylum_project}" ] &&
-    _err "required phylum project name not specified (e.g., -P fleetth)" &&
+  [ -z "${dependency_src}" ] &&
+    _err "required dependency specification not specified (e.g., -P <phylum project> or -P <[syft|GitHub] sbom file>)" &&
     _rc=1
 
   #
   # TODO: fix - this is an unnecessary restriction
   #
-  [ ! "${component}" = "${phylum_project}" ] &&
-    _err "required phylum and local project must be the same TODO: fix (e.g., -P fleetth -C fleetth)" &&
-    _rc=1
+  [[ "${dependency_type}" == "${__PHYLUM__}" ]] && {
+    [ ! "${component}" = "${dependency_src}" ] &&
+      _err "required phylum and local project must be the same TODO: fix (e.g., -P fleetth -C fleetth)" &&
+      _rc=1;
+  }
 
   [ "${gh_site}" = "${__NULLGH__}" ] &&
     _warn "Github project site not specified for ${component} (e.g., -G ossf/scorecard)"
@@ -4495,8 +5422,14 @@ check_runtime()
 
   return ${_rc}
 }
+_saveOff_json_Computed_scores()
+{
+  # TODO: determine what to save off
+  #
+  return 0
+}
 
-_saveOff_json_scores()
+_saveOff_json_Raw_scores()
 {
   local _card
   local _scrs
@@ -4508,7 +5441,11 @@ _saveOff_json_scores()
     MYscore | HCscore)
       _tt="gt";
       ;;
-    CIOscore | SCscore | PHYscore)
+    CIOscore | SCscore)
+      _tt="le";
+      ;;
+    PHYscore)
+      ! "${_doPhylum}" && return 0
       _tt="le";
       ;;
     CSscore)
@@ -4546,6 +5483,57 @@ _saveOff_json_scores()
   _scrs="${_scrs//NoImp/null}"
 
   echo "${_scrs/,}"
+  return 0
+}
+
+#
+# inspired by https://github.com/MrMarble/termsvg/blob/master/scripts/update-filesize.sh
+#
+_compile_md_p4report()
+{
+  local _MDTABLE
+  local _col1
+  local _col2
+  local _col2clean
+  local id
+
+  read -r -d '' _MDTABLE << EOS
+  | OSS Project Report | Response |
+  |--------------------|:---------|\n
+EOS
+
+  while read -r id; do
+    IFS="|" read -r _col1 _col2 < <(jq -r --arg ID "${id}" '.reportWriter[]|select (.id == $ID)|[.label,.value]|join("|")' "${2}")
+
+    #
+    # handle special cases (keep this one)
+    [[ $id =~ Section___ ]] && _col2="____HRULE____"
+
+    _col2clean=$(sed "s^<ac:emoticon ac:name='warning'/>^(\!)^g;s^<ac:emoticon ac:name='cross'/>^(\x)^g;" <<<"${_col2}")
+
+    case "${id}" in
+      "${_LOCAL_OSSP4R_OUTLOOK_ID}" | "${_LOCAL_DODCIO_CRITERIA_ID}")
+        read -r _col2 < <(jq -r --arg ID "${id}" '.reportWriter[]|select (.id == $ID)|.wwwValue' "${2}")
+        _col2clean=$(sed -e 's^background-color:rgba([^;]*;^^g;' <<<"${_col2}")
+        ;;
+      "${_LOCAL_SUMMARIZED_SCORES_BY_CRITERIA_ID}")
+        ;;
+      *)
+        _col2clean=$(sed "s^ ac:name='tr' ^>____BREAK____<^g;s^<br/>^____BREAK____^g;s^<p/>^____BREAK____^g;" <<<"${_col2clean}")
+        # shellcheck disable=2001
+        _col2clean=$(sed -e 's/<[^>]*>//g;' <<<"${_col2clean}")
+        ;;
+    esac
+
+    _MDTABLE+="| ${_col1} | ${_col2clean} |\n"
+
+  done < <(jq -r '.reportWriter[]|.id' "${2}")
+
+  #
+  # last step - reinflate out allowable html tags and turn the newline token into real newlines
+  #
+  echo "${_MDTABLE}" | sed 's^\\n^\n^g' | sed 's^____BREAK____^<br>^g;s^____HRULE____^<hr>^g;' > "${1}_scir.md"
+
   return 0
 }
 
@@ -4590,6 +5578,7 @@ _compile_json_p4report()
  {
    "id": "${_LOCAL_OSSP4R_OUTLOOK_ID}",
    "value": "$(_p4_outlook "${_SCcard}" "${_HCcard}" "${__component_prds}" | sed 's/"/\\"/g' | tr -d '\n\r')",
+   "wwwValue": "$(_p4_outlook --www "${_SCcard}" "${_HCcard}" "${__component_prds}" | sed 's/"/\\"/g' | tr -d '\n\r')",
    "label": "${_LOCAL_OSSP4R_OUTLOOK_LABEL}",
    "description": "${_LOCAL_OSSP4R_OUTLOOK_DESC}",
    "risk": "${_LOCAL_OSSP4R_OUTLOOK_RISK}"
@@ -4597,6 +5586,7 @@ _compile_json_p4report()
  {
    "id": "${_LOCAL_DODCIO_CRITERIA_ID}",
    "value": "$(_cio_criteria "${_SCcard}" "${_HCcard}" "${__component_prds}" | sed 's/"/\\"/g' | tr -d '\n\r')",
+   "wwwValue": "$(_cio_criteria --www "${_SCcard}" "${_HCcard}" "${__component_prds}" | sed 's/"/\\"/g' | tr -d '\n\r')",
    "label": "${_LOCAL_DODCIO_CRITERIA_LABEL}",
    "description": "${_LOCAL_DODCIO_CRITERIA_DESC}",
    "risk": "${_LOCAL_DODCIO_CRITERIA_RISK}"
@@ -4678,6 +5668,7 @@ _compile_json_p4report()
    "description": "${_LOCAL_TYPOSQUATTING_RISK_DESC}",
    "risk": "${_LOCAL_TYPOSQUATTING_RISK_RISK}"
  },
+ $( "${_doPhylum}" && cat <<-_phylumeof
  {
    "id": "${_LOCAL_ENG_RISK_ID}",
    "value": "$(_eng_risk "${component}_allIssues.json")",
@@ -4692,6 +5683,8 @@ _compile_json_p4report()
    "description": "${_LOCAL_MALICIOUS_CODE_DESC}",
    "risk": "${_LOCAL_MALICIOUS_CODE_RISK}"
  },
+_phylumeof
+ )
  {
    "id": "${_LOCAL_VULN_CHECK_ID}",
    "value": "$(_vul_check "${component}_allIssues.json" "${_SCcard}")",
@@ -4750,7 +5743,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_SBOM_ID}",
-   "value": "$(_sbom_val "${__ghrsbomjson}")",
+   "value": "$(_sbom_val "${__ghrsbomjson}")<br/>Language package managers detected: $(_sbom_pkgs "${__component_prjs}")",
    "label": "${_LOCAL_SBOM_LABEL}",
    "description": "${_LOCAL_SBOM_DESC}",
    "risk": "${_LOCAL_SBOM_RISK}"
@@ -4771,7 +5764,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_ID}",
-   "value": "Primary: $(_project_dep "${component}" "${__component_prjs}" | tr -d '\n\r')<br/>Secondary and tertiary: $(_project_dep --subs "${component}" "${__component_prjs}" | tr -d '\n\r')",
+   "value": "Primary: $(_project_dep "${component}" "${__component_prjs}" | tr -d '\n\r')<br/>Secondary: $(_project_dep --sec "${component}" "${__component_prjs}" | tr -d '\n\r')<br/>Tertiary and greater (Max search depth realized $(_max_project_dep "${__component_prjs}")): $(_project_dep --ter "${component}" "${__component_prjs}" | tr -d '\n\r')",
    "label": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_LABEL}",
    "description": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_DESC}",
    "risk": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_OSS_RISK}"
@@ -4932,21 +5925,21 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_METADATA_PHYPRJID_ID}",
-   "value": "$(_phylum_prjId "${phylum_project}" "${__phy_prjs}")",
+   "value": "$(_phylum_prjId "${dependency_src}" "${__phy_prjs}")",
    "label": "${_LOCAL_METADATA_PHYPRJID_LABEL}",
    "description": "${_LOCAL_METADATA_PHYPRJID_DESC}",
    "risk": "${_LOCAL_METADATA_PHYPRJID_RISK}"
  },
  {
    "id": "${_LOCAL_METADATA_PHYJOBID_ID}",
-   "value": "$(_phylum_jobReport --readOnly "${phylum_project}" "${__component_prds}")",
+   "value": "$(_phylum_jobReport --readOnly "${dependency_src}" "${__component_prds}")",
    "label": "${_LOCAL_METADATA_PHYJOBID_LABEL}",
    "description": "${_LOCAL_METADATA_PHYJOBID_DESC}",
    "risk": "${_LOCAL_METADATA_PHYJOBID_RISK}"
  },
  {
    "id": "${_LOCAL_METADATA_RUNTIME_ID}",
-   "value": "Approximately $(_thisRuntime "${__logfil}") minute(s) (this run), for a total of $(_totalRuntime 'run-*log')",
+   "value": "Approximately $(_thisRuntime "${__RUNTIME__}") minute(s) (this run), for a total of $(_totalRuntime 'run-*log')",
    "label": "${_LOCAL_METADATA_RUNTIME_LABEL}",
    "description": "${_LOCAL_METADATA_RUNTIME_DESC}",
    "risk": "${_LOCAL_METADATA_RUNTIME_RISK}"
@@ -4960,7 +5953,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_METADATA_DEPTHS_ID}",
-   "value": "${dependencyDepth}, ${scoreDepth}",
+   "value": "$(_max_project_dep "${__component_prjs}"), ${scoreDepth}",
    "label": "${_LOCAL_METADATA_DEPTHS_LABEL}",
    "description": "${_LOCAL_METADATA_DEPTHS_DESC}",
    "risk": "${_LOCAL_METADATA_DEPTHS_RISK}"
@@ -4974,7 +5967,7 @@ _compile_json_p4report()
  },
  {
    "id": "${_LOCAL_METADATA_CREDITS_ID}",
-   "value": "<a href='https://github.com/ossf/scorecard'>OSSF/Scorecard ${_ossf_scorecard_ver}</a>, <a href='https://github.com/ossf/criticality_score'>OSSF/Critical Score ${_ossf_critscorecard_ver}</a>, <a href='https://github.com/mitre/hipcheck'>MITRE Hipcheck ${_mitre_hipcheck_ver}</a>, <a href='https://phylum.io'>Phylum.io ${_phylum_ver}</a>",
+   "value": "<a href='https://github.com/ossf/scorecard'>OSSF/Scorecard ${_ossf_scorecard_ver}</a>, <a href='https://github.com/ossf/criticality_score'>OSSF/Critical Score ${_ossf_critscorecard_ver}</a>, <a href='https://github.com/mitre/hipcheck'>MITRE Hipcheck ${_mitre_hipcheck_ver}</a>, $( "${_doPhylum}" && echo "<a href='https://phylum.io'>Phylum.io ${_phylum_ver}</a>, ")<a href='https://github.com/anchore/grype'>grype ${_grype_ver}</a>",
    "label": "${_LOCAL_METADATA_CREDITS_LABEL}",
    "description": "${_LOCAL_METADATA_CREDITS_DESC}",
    "risk": "${_LOCAL_METADATA_CREDITS_RISK}"
@@ -4989,11 +5982,17 @@ _compile_json_p4report()
  ],
  "rawScores": [
    {
-     "mycheck": [ $(_saveOff_json_scores "MYscore") ],
-     "criticalityScore": [ $(_saveOff_json_scores "CSscore" "${_CScard}") ],
-     "scorecard": [ $(_saveOff_json_scores "SCscore") ],
-     "hipcheck": [ $(_saveOff_json_scores "HCscore") ],
-     "phylum": [ $(_saveOff_json_scores "PHYscore") ]
+     "mycheck": [ $(_saveOff_json_Raw_scores "MYscore") ],
+     "criticalityScore": [ $(_saveOff_json_Raw_scores "CSscore" "${_CScard}") ],
+     "scorecard": [ $(_saveOff_json_Raw_scores "SCscore") ],
+     "hipcheck": [ $(_saveOff_json_Raw_scores "HCscore") ],
+     "phylum": [ $(_saveOff_json_Raw_scores "PHYscore") ]
+   }
+ ],
+ "computedScores": [
+   {
+     "ossp4r": [ $(_saveOff_json_Computed_scores "MYscore") ],
+     "stakeHolder": [ $(_saveOff_json_Computed_scores "MYscore") ]
    }
  ]
 }
@@ -5029,38 +6028,48 @@ __main__()
 
   build_caches
 
+  #
+  # TODO: perform an equiv check if an SBOM is materially newer
+  #       than an existing SBOM (e.g., using jqdiff.sh tool)
+  #
   ! ${protectNoUpdate} && [ -s "${__component_prds}" ] && {
-    __jobStatus="$(_phylum_jobStatus "${phylum_project}" "${__component_prds}")";
+    __jobStatus="$(_phylum_jobStatus "${dependency_src}" "${__component_prds}")";
     _phylum_jobId_BHDT="true"
     [[ "${__jobStatus}" == "incomplete" ]] && { \
       _say "Existing phylum analysis job was ${__jobStatus}, rebuilding ${__component_prds}";
       component_dep_rebuild="true";
     }
-    _job="$(_phylum_jobId "${phylum_project}" "${__component_prds}")"
+    _job="$(_phylum_jobId "${dependency_src}" "${__component_prds}")"
     [[ -n "${_job}" ]] && [[ "${__jobStatus}" == "complete" ]] && \
-      [[ "${phylum_project}_job_${_job/,*/}.json" -nt "${__component_prds}" ]] && { 
+      [[ "${dependency_src}_job_${_job/,*/}.json" -nt "${__component_prds}" ]] && {
         _say "Existing phylum analysis job is ${__jobStatus} but newer, rebuilding ${__component_prds}";
         component_dep_rebuild="true";
     }
   }
 
+  _say "checking dependencies..."
   _level=1
   ${BFLAGS[deps]} && component_dep_rebuild="true"
-  (${component_dep_rebuild} || ${force_rebuild} ||
-    [ ! -s "${__component_prds}" ] || [ ! -s "${__component_prjs}" ]) &&
+  { ${force_rebuild} || ${component_dep_rebuild} ||
+    [ ! -s "${__component_prds}" ] || [ ! -s "${__component_prjs}" ]; } &&
       _say "rebuilding links to ${component} dependencies..." &&
       _phylum_dep_components "${component}" "${__phy_prjs}" \
         "${__component_prds}" "${__component_prjs}" "${_level}" &&
       scorecard_rebuild="true" &&
-      echo 0,"${__gh}","${__gh}","${__gh}",000 >> "${__component_prjs}"
+      component_subdep_rebuild="true" && _line="0,${__gh},${__gh},${__gh},000" &&
+      ! grep -q -o -E "(^${_line}$)" "${__component_prjs}" &&
+          echo "${_line}" >> "${__component_prjs}";
 
   #
   # TODO: go n levels deep on dependencies
-  #       based on phylum API
+  #       based on dependency specifications
   #       still under test not happy with output yet
+  # TODO: trigger a subdep rebuild of depth changed
+  #       to be automatic workaround is the -f subdeps flag
   #
   #        [ ! -s "${__component_prjs}".subs ]) &&
-  ${BFLAGS[subdeps]} && component_subdep_rebuild="true"
+_say "checking sub-dependencies..."
+${BFLAGS[subdeps]} && component_subdep_rebuild="true"
   { ${force_rebuild} || ${component_subdep_rebuild} ||
     [ ! -s "${__component_prjs}" ]; } &&
       _say "rebuilding links to ${component} sub-dependencies..." &&
@@ -5071,7 +6080,9 @@ __main__()
   # and build a Graphviz formatted digraph
   #
   [[ -f "${__tmp_dep_graph}" ]] && _say "building digraph of dependencies..." && _build_digraph "${__tmp_dep_graph}" && rm "${__tmp_dep_graph}"
-
+  { ! grep -q --fixed-strings 'digraph G {' "${__component_dep_graph}" 2>/dev/null && \
+    ! grep -q --fixed-strings '^}' "${__component_dep_graph}" 2>/dev/null; } \
+      && _warn "${__component_dep_graph}: missing or incomplete."
   #
   # TODO: only remove ${component}_coalesce.csv
   #       if and only if after rebuilding, any files
@@ -5083,6 +6094,7 @@ __main__()
   #       that for now. need to implement
   #       may be that any *[sh].json is newer than _coalesce.csv
   #
+  _say "checking score cards..."
   { ${BFLAGS[cards]} || ${scorecard_rebuild} || ${force_rebuild} ||
     [ ! -d deps.d/ ]; } &&
       _say "rebuilding scorecards for ${component} dependencies..." &&
@@ -5093,18 +6105,18 @@ __main__()
   #       above resulted in a change
   #
   # shellcheck disable=2143
+  _say "checking for new scores..."
   [ -f "${component}_coalesce.csv" ] &&
-    [[ -n "$(find . -newer "${component}_coalesce.csv" -type f \
-        \( -path "*/deps.d/*[sh]c.json*" -o \
-           -path "*/subdeps.d/*[sh]c.json*" -o \
-           -path \*hc.txt \) \
-           -print | \
-        grep -v -E '(skip)')" ]] && \
-        _say "Detected updated/new scores" && newScores=true
+    find . -newer "${component}_coalesce.csv" -type f \
+      \( -path "*/deps.d/*[sh]c.json*" -o \
+         -path "*/subdeps.d/*[sh]c.json*" -o \
+         -path \*hc.txt \) \
+         -print | \
+      grep -q -v -E '(skip)' && \
+    _say "Detected updated/new scores" && newScores=true
 
-  ${BFLAGS[scores]} && newScores=true
-  (${newScores} || ${force_rebuild} ||
-    [ ! -d deps.d/ ] || [ ! -s "${component}_coalesce.csv" ]) &&
+  { ${BFLAGS[scores]} || ${newScores} || ${force_rebuild} ||
+    [ ! -d deps.d/ ] || [ ! -s "${component}_coalesce.csv" ]; } &&
       _say "validating scorecards for ${component} dependencies..." &&
       validate_scorecards "${__component_prjs}" "${scoreDepth}"
 
@@ -5114,8 +6126,8 @@ __main__()
   #       to the coalesced scores file
   #
   coalesce_header="true"
-  (${newScores} || ${force_rebuild} ||
-    [ ! -s "${component}_coalesce.csv" ]) &&
+  { ${newScores} || ${force_rebuild} ||
+    [ ! -s "${component}_coalesce.csv" ]; } &&
       _say "coalescing scores for ${component}..." &&
       coalesce_scorecards "${component}" "${__component_prjs}" "${component}_coalesce.csv"
 
@@ -5138,17 +6150,14 @@ __main__()
   #      | wc -l) -gt 0 \
   #  ]] && echo out of date
   #
+  _say "checking for new issues..."
   { ${BFLAGS[issues]} || ${force_rebuild} ||
     [ ! -s "${component}_allIssues.json" ]; }  &&
       _say "consolidating issues for ${component}..." &&
-      consolidate_issues "all" "${component}" "${component}_allIssues.json"
+      consolidate_issues "all" "${component}" "${component}_allIssues.json" "${__component_prjs}"
 
-  #
-  # TODO: only build html issue report if older
-  #       than the json structure it depends on
-  #
-  (true || "${do_reports}" ||
-    [ ! -s "${component}_vulmalrep.html" ]) &&
+  { [[ "${component}_allIssues.json" -nt "${component}_vulmalrep.html" ]] || "${do_reports}" ||
+    [ ! -s "${component}_vulmalrep.html" ]; } &&
       _say "building issues report for ${component}..." &&
       _do_issues_reports "${report_type}" "${component}" "${component}_allIssues.json" "${component}_vulmalrep.html"
 
@@ -5211,6 +6220,9 @@ __main__()
       .[]
       ' "${component}_scir.json" > "${component}_scir.html" && _rc="OK"
     _say "${_rc}"
+    _rc="Failed"
+    _say -n "Generating ${component}_scir.md..." && _compile_md_p4report "${component}" "${component}_scir.json" && _rc="OK"
+    _say "${_rc}"
   }
 
   ${build_BoE} && {
@@ -5220,11 +6232,12 @@ __main__()
     fi;
   }
 
-  return
+  return 0
 }
 
 readonly _bldFlags="'all', or one or more of: cards,caches,deps,subdeps,meta,crit,scard,hcheck,scores,issues,job"
 readonly _indFlags="caches cards crit deps hcheck issues job meta scard scores subdeps"
+_updatingFlag="false"
 
 declare -A BFLAGS=( \
   [caches]="false" \
@@ -5242,13 +6255,13 @@ declare -A BFLAGS=( \
 
 declare -A BFLAGSTEXT=( \
   [all]="acts as if all BUILD FLAGS are true, essentially rebuilds everything from scratch (logs retained)" \
-  [caches]="cached data from github (home page, contributors, SBOM), phylum project data" \
+  [caches]="cached data from github (home page, contributors, SBOM), and other project data" \
   [cards]="forces all scorecards and checks to run and retry previous error, no cached data is changed" \
   [crit]="forces OSSF Criticality Score to refresh" \
   [deps]="rebuilds all primary dependencies" \
   [hcheck]="forces MITRE Hipcheck to refresh" \
-  [issues]="rebuilds phylum issues from all dependencies" \
-  [job]="rechecks phylum analysis job for updates" \
+  [issues]="rebuilds issues from all dependencies" \
+  [job]="rechecks project dependency source for updates" \
   [meta]="forces GitHub Metadata to refresh" \
   [scard]="forces OSSF Scorecard to refresh" \
   [scores]="rebuilds coalesced scores from all scorecards and checks" \
@@ -5325,25 +6338,28 @@ component_subdep_rebuild="false"
 scorecard_rebuild="false"
 newScores="false"
 
+_doPhylum="false"
 do_reports="false"
 quiet="false"
 verbose="false"
-dependencyDepth="all"
+dependencyDepth="3"
 scoreDepth=0
+issueDepth="auto"
 scoreTimeout=""
 
 component=
 puri="${__NULLPURI__}"
-report_type=
+report_type=all
 gh_site="${__NULLGH__}"
-phylum_project=${component}
+dependency_src=${component}
+dependency_type=
 
-_sudo=""
 #
 # errors always go to stderr
 #
-_fderr=2
-_fdwarn=2
+exec 7>&2
+_fderr=7
+_fdwarn=7
 
 #
 # never send to stdout
@@ -5354,7 +6370,7 @@ __logfil="${__NULLLOG__}"
 
 _cmdline="${0} ${*}"
 
-while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
+while getopts "c:d:f:hi:lopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
   case $opt in
     c) _cache_days="${OPTARG}" ;;
     d) dependencyDepth="${OPTARG}"
@@ -5364,17 +6380,25 @@ while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
        ;;
     f) ! _set_bldFlags "${OPTARG}" && _fatal "build_flags: expecting ${_bldFlags}"
        ;;
+    i) issueDepth="${OPTARG}"
+       ! [[ ${issueDepth} =~ ^[0-9]+$ ]] && \
+         [[ ${issueDepth} != "all" ]] && [[ ${issueDepth} != "auto" ]] && \
+         _fatal "expecting a positive integer for issue depth (${issueDepth})"
+       ;;
     l) __logfil="run-$(date +%Y%m%d-%H%M%S).log" ;;
     o) BoEonly="true"; build_BoE="true" ;;
     p) protectNoUpdate="true" ;;
     q) quiet="true" ;;
+    u) _updatingFlag="true"
+       _warn "Updating flag (-u) is experimental at this point as old items are not purged"
+       ;;
     v) verbose="true" ;;
     B) build_BoE="true" ;;
-    C) component="${OPTARG}"; phylum_project="${component}" ;;
+    C) component="${OPTARG}" ;;
     D) scoreDepth="${OPTARG}"
        ! [[ ${scoreDepth} =~ ^[0-9]+$ ]] && \
          [[ ${scoreDepth} != "all" ]] && \
-         _fatal "expecting a positive integer for scoreDepth (${scoreDepth})" 
+         _fatal "expecting a positive integer for scoreDepth (${scoreDepth})"
        ;;
     L) do_reports="true" report_type="all" ;;
     G) gh_site="${OPTARG}"
@@ -5384,13 +6408,45 @@ while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
          __ghSKIP="true"
        ;;
     O) blockNetwork="true" ;;
-    P) phylum_project="${OPTARG}" ;;
-    U) puri="${OPTARG}" ;;
+    P) dependency_src="${OPTARG}"
+       case "${dependency_src/*:/}" in
+         sbom)
+           dependency_src="${dependency_src/:sbom/}"
+           [ -s "${dependency_src}" ] && [ -f "${dependency_src}" ] &&
+             dependency_src="$(realpath "${dependency_src}")" &&
+               dependency_type="${__SBOM__}"
+           [ -s "${component}/${dependency_src}" ] && [ -f "${component}/${dependency_src}" ] &&
+             dependency_src="$(realpath "${component}/${dependency_src}")" &&
+               dependency_type="${__SBOM__}"
+           if [[ "${dependency_src^^}" = "${__GITHUB__}" ]]; then
+             # at this point not sure of the actual SBOM to be pulled from GHAPI
+             dependency_type="${__SBOM__}"
+           else
+             [[ ! -f "${dependency_src}" ]] && \
+               _fatal "expecting SBOM specification at $(realpath "${dependency_src}") or ${component}/${dependency_src}"
+           fi
+           ;;
+         phylum)
+           dependency_type="${__PHYLUM__}"
+           _doPhylum="true"
+           dependency_src="${dependency_src/:phylum/}"
+           [[ "${dependency_src}" =~ : ]] && puri="${dependency_src}"
+           ;;
+         *)
+           ;;
+       esac
+       ;;
+    U) puri="${OPTARG}"
+       dependency_type="${__PHYLUM__}"
+       dependency_src="${puri}"
+       _doPhylum="true"
+       _warn "-U deprecated, please start to use '-P ${puri}:phylum'"
+       ;;
     V) echo "Version: ${_version}" && _fatal "" ;;
     W) scoreTimeout="${OPTARG}"
        ! [[ ${scoreTimeout} =~ ^[0-9]+$ ]] && \
          [[ ${scoreTimeout,} != "default" ]] && \
-         _fatal "expecting a positive integer for scoreTimeout (${scoreTimeout})" 
+         _fatal "expecting a positive integer for scoreTimeout (${scoreTimeout})"
          [[ ${scoreTimeout,} == "default" ]] && scoreTimeout="${__TIMEOUT__}"
        ;;
     Z) _CAStoreVolume="${OPTARG}"
@@ -5401,27 +6457,30 @@ while getopts "c:d:f:hlopqvBC:D:G:L:OP:U:VW:Z:" opt; do #{
 
   OPTIONS
 
-  -c:  set number of days for cache staleness check (default: 2)
-  -d:  set depth number on dependencies to dig into (default: all (no limit))
+  -c:  set number of days for cache staleness check (default: ${_cache_days})
+  -d:  set depth number on dependencies to dig into (default: ${dependencyDepth}, primary - teritary, or 'all' (no limit))
   -f:  force rebuild (overrides -p) of all or specific(s) caches, scores, reports or other data
        comma separate being ${_bldFlags}
   -h:  this message (and exit)
+  -i:  sets the depth for vulnerability discoveries for SBOM project dependency sources (default: ${issueDepth}, top component only, #, 'all' (no limit))
   -l:  log output messages to file of the form 'run-YYYYMMDD-HHMMSS.log' in 'logs' folder
   -o:  build only the BoE (i.e., do nothing else but that, and exit. see -B)
   -p:  protect, no automatic updates (useful for reproducibility)
   -q:  quiet (overrides verbose, warnings)
+  -u:  update modifier to force rebuild (preserves information where possible, e.g., deps, subdeps)
   -v:  verbose, not quiet
   -B:  build body of evidence (.tgz) suitable for archive storage
   -C:  set local component name/project name (REQUIRED)
-  -D:  set depth on dependencies to run scorecards (default: 0, top component only, or 'all' (no limit))
+  -D:  set depth on dependencies to run scorecards (default: ${scoreDepth}, top component only, #, or 'all' (no limit))
   -G:  set Github project site (REQUIRED)
-  -L:  make one or more subreports and exit (default 'all')
+  -L:  make one or more subreports and exit (default '${report_type}')
   -O:  offline - do not use networking (some capabilities will be degraded) relies on cached data
-  -P:  set Phylum.io project name (default: same as -C) (REQUIRED)
-  -U:  use package URI spec rather than a Phylum.io project name (e.g., npm:@babel/highlight:^7.18.6)
+  -P:  set project dependency source (github:sbom, <jsonfile>:sbom, <project>:phylum, <uri>:phylum) (REQUIRED)
+       (sbom types automatically detected: SPDX, CycloneDX (coming soon))
+  -U:  *deprecated* use package URI spec rather than a Phylum.io project name (e.g., npm:@babel/highlight:^7.18.6)
   -V:  display version (and exit)
   -W:  watch docker scorecards run not to exceed time limit (default: ${__TIMEOUT__} seconds)
-  -Z:  specify certificates trust store when required by enterprise-level proxies
+  -Z:  specify certificates trust store(s) when required by enterprise-level proxies
        which may be in use (e.g. -Z '/etc/ssl/certs/ca-certificates.crt')
 
   BUILD FLAGS (-f 'flag1[,flag2,...]')
@@ -5452,12 +6511,16 @@ ${quiet} &&
 #
 # properly set up logfile if necessary
 #
-[[ -n "${__logfil}" ]] && \
+[[ -n "${__logfil}" ]] && [[ "${__logfil}" =~ ^run ]] && \
         __logger="tee -a ${__logfil}" && \
         date +%s > "${__logfil}" && \
-        _rp="$(realpath -e "${__logfil}")"
+        _rp="$(realpath -e "${__logfil}")" && \
+        cp /dev/null "${__logfil}.basherr" && exec 2>"${__logfil}.basherr"
 
 _say "cmdline: ${_cmdline}"
+
+[[ -n "$(ls "${component}"/run-*log 2>/dev/null)" ]] &&
+  _fatal "found potentially active runlog(s): '$(ls "${component}"/run-*log)', remove/move if not busy/active"
 
 #
 # do any overriders here
@@ -5475,7 +6538,9 @@ _say "establishing componment working folder ${component}"
 mkdir -p "${component}"
 
 _say "setting current working folder to ${component}"
-pushd "${component}" >&"${_fdwarn}" || _fatal "can't set working folder to ${component}"
+pushd "${component}" >&"${_fdverbose}" || _fatal "can't set working folder to ${component}"
+
+date +%s > "${__RUNTIME__}"
 
 #
 # since 'preMVP 240507a (branch: main)' tidy
@@ -5488,7 +6553,21 @@ mkdir -p logs/
 #
 # this log file will be moved later in cleanup
 #
-[[ -n "${__logfil}" ]] && mv -f "${_rp}" "."
+[[ -n "${__logfil}" ]] && mv -f "${_rp}" "." && mv -f "${_rp}.basherr" "."
+
+#
+# move the sbom here to the working folder
+# TODO: only move/overwrite if what's specified is newer
+#
+[[ "${dependency_type}" == "${__SBOM__}" ]] && {
+  _msg="are declared to include transitive dependencies"
+  [[ ${issueDepth} == "auto" ]] && issueDepth=0
+  [[ "${dependency_src^^}" != "${__GITHUB__}" ]] && mv -i "${dependency_src}" ./ && 
+    _msg="are likely not to include transtive dependencies" && issueDepth=1
+  dependency_src="$(basename "${dependency_src}")";
+  _info "SBOM dependencies in '${dependency_src}' ${_msg} - issue depth is ${issueDepth} (change with -i)"
+  unset _msg
+}
 
 #
 # caches
@@ -5507,7 +6586,7 @@ __component_prjs="${component}"_dep_prjs.csv
 #
 # dependency graph in Graphviz format
 #
-__tmp_dep_graph="$(mktemp -u -p .)"
+__tmp_dep_graph="$(mktemp -u -p . -t depGraph.XXXXXXXXXX)"
 __component_dep_graph="${component}_dep_digraph.txt"
 
 # https://api.github.com/repos/:owner/:repo
