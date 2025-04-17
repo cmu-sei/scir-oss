@@ -24,7 +24,7 @@
 # DM24-0786
 # 
  
-readonly _version="pubRel 250415a (branch: publicRelease)"
+readonly _version="pubRel 250417a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -424,10 +424,6 @@ check_runtime()
     fi
   }
 
-  # localizations are for organization dependent nomenclature,
-  # and local runtime constraints (binaries, containers, etc.)
-  do_runtime_localizations "${_PUBSCIRsettings}"
-
   #
   # the binaries
   #
@@ -537,6 +533,10 @@ __logger="cat"
 __logfil=""
 
 _cmdline="${0} ${*}"
+
+# localizations are for organization dependent nomenclature,
+# and local runtime constraints (binaries, containers, etc.)
+do_runtime_localizations "${_PUBSCIRsettings}"
 
 while getopts "a:hilopqvA:BC:R:S:T:V" opt; do #{
   case $opt in

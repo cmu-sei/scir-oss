@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250415a (branch: publicRelease)"
+readonly _version="pubRel 250417a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -1939,7 +1939,7 @@ _criticality_score()
 {
   local _cs
 
-  ${blockNetwork} && [[ ! -s "${1}" ]] &&
+  ${blockNetwork} &&
     _warn "Offline mode, cannot run _criticality_score, skipped" &&
     _cs=${__NAN__} &&
     echo "$(_fotp --warnFlag "${_cs}" "${_CSthreshold}")$(_fppp "2" "${_cs}")/1.0" &&
@@ -1963,7 +1963,8 @@ _criticality_score()
       _warn "criticality score: ${gh_site} not found";
   }
 
-  _cs="$(jq -r '.default_score' "${1}")"
+  _cs=${__NAN__}
+  [[ -s "${1}" ]] && _cs="$(jq -r '.default_score' "${1}")"
   echo "$(_fotp --warnFlag "${_cs}" "${_CSthreshold}")$(_fppp "2" "${_cs}")/1.0"
   return
 }
@@ -2547,8 +2548,12 @@ _totalRuntime()
     echo $(( $(stat --printf=%Y "${f}") - _s )) >> "${_f}"
   done
 
-  _count="$(wc -l < "${_f}")"
-  _seconds="$(awk '{s+=$1} END {printf "%.0f", s}' < "${_f}")"
+  _count=0
+  _seconds=0
+  [[ -s "${_f}" ]] && {
+    _count="$(wc -l < "${_f}")"
+    _seconds="$(awk '{s+=$1} END {printf "%.0f", s}' < "${_f}")"
+  }
 
   rm -f "${_f}"
   echo "$(( _seconds / 60 )) minute(s) over ${_count} run(s)"
@@ -3856,7 +3861,7 @@ _run_criticality_score()
   { ${BFLAGS[crit]} || ${force_rebuild}; } &&
     cp /dev/null "${_joutput}"
 
-  [ ! -s "${_joutput}" ] && {
+  [[ -s "${_OSSFCS}" ]] && [ ! -s "${_joutput}" ] && {
     _say "running criticality score on ${1} to ${_joutput}";
     waitRateLimit "${_lowerLimit}";
     #
@@ -4946,9 +4951,10 @@ consolidate_issues()
     __phdepFiles=$(mktemp -u -p . -t phdep.XXXXXXXXXX)
       find . \( -name \*_dep_prds.json -o -name \*deps.json \) -print0 > "${__phdepFiles}"; }
 
-  _say -n " ..."
-  __grypeFiles=$(mktemp -u -p . -t grype.XXXXXXXXXX) &&
-    find . -maxdepth 1 \( -name \*_sbom_grype.json \) -print0 > "${__grypeFiles}"
+  [[ ! ${_grype_ver} == "unknown" ]] && { _say -n " ..."
+    __grypeFiles=$(mktemp -u -p . -t grype.XXXXXXXXXX) &&
+      find . -maxdepth 1 \( -name \*_sbom_grype.json \) -print0 > "${__grypeFiles}"
+  }
   _say "OK"
 
 
@@ -4995,7 +5001,7 @@ _MYLICEOF
     #
     # TODO: test if __SBOM__ before this find and __PHYLUM__ for the next find
     #
-    [[ "${__risk__}" == "vulnerabilities" ]] && _say "collecting grype vulnerabilities..." && \
+    [[ "${__risk__}" == "vulnerabilities" ]] && [[ ! ${_grype_ver} == "unknown" ]] && _say "collecting grype vulnerabilities..." && \
       xargs -a "${__grypeFiles}" -0 \
         jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
 
@@ -5271,13 +5277,22 @@ check_runtime()
   ! do_runtime_localizations "${_OSSSCIRsettings}" && _rc=1
 
   #
-  # the binaries
+  # the required binaries
   #
-  for cmd in ps pgrep bc jq curl docker base64 phylum iconv shuf sha256sum "${_OSSFCS}"
+  for cmd in ps pgrep bc jq curl docker base64 iconv shuf sha256sum
   do
     [ -z "$(command -v "${cmd}")" ] &&
       _err "required command, ${cmd}: not found in path or not installed" &&
       _rc=1
+  done
+
+  #
+  # the optional binaries
+  # shellcheck disable=2043
+  for cmd in phylum "${_OSSFCS}"
+  do
+    [ -z "$(command -v "${cmd}")" ] &&
+      _warn "optional command, ${cmd}: not found in path or not installed"
   done
 
   #
@@ -5342,8 +5357,8 @@ check_runtime()
     *) ;;
   esac
 
-  _phylum_ver="$(phylum --version | cut -d\  -f2)"
-  [[ -z "${_phylum_ver}" ]] && _warn "could not determine Phylum CLI version" && _phylum_ver="unknown"
+  "${_doPhylum}" && { _phylum_ver="$(phylum --version | cut -d\  -f2)"
+  [[ -z "${_phylum_ver}" ]] && _warn "could not determine Phylum CLI version" && _phylum_ver="unknown"; }
 
   _ossf_critscorecard_ver="$(${_OSSFCS} -depsdev-disable https://github.com/ 2>&1 | grep criticality_score@ | cut -d@ -f2|cut -d/ -f1|sort|uniq)"
   [[ -z "${_ossf_critscorecard_ver}" ]] && _warn "could not determine OSSF/criticality_score version" && _ossf_critscorecard_ver="unknown"
@@ -5451,7 +5466,7 @@ _saveOff_json_Raw_scores()
     CSscore)
       local _cs
       local _pf
-      _cs="$(jq -r '.default_score' "${2}")"
+      _cs="$(jq -r '.default_score' "${2}" 2>/dev/null)"
       _pf=passing
       [[ -z "${_cs}" ]] && _cs="${__NAN__}"
       ! _fotp --warnFlag "${_cs}" "${_CSthreshold}" >/dev/null && _pf=failing
@@ -6553,7 +6568,7 @@ mkdir -p logs/
 #
 # this log file will be moved later in cleanup
 #
-[[ -n "${__logfil}" ]] && mv -f "${_rp}" "." && mv -f "${_rp}.basherr" "."
+[[ -n "${__logfil}" ]] && [[ "${__logfil}" =~ ^run ]] && mv -f "${_rp}" "." && mv -f "${_rp}.basherr" "."
 
 #
 # move the sbom here to the working folder
