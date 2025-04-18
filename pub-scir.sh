@@ -34,7 +34,7 @@ readonly _version="pubRel 250417a (branch: publicRelease)"
 #
 # TODO: make this 'settings' folder path/name a command line arg
 #
-_PUBSCIRsettings=${_PUBSCIRsettings:-"/vagrant/scir-oss/settings"}
+_PUBSCIRsettings=${_PUBSCIRsettings:-"$(dirname "$(realpath "${0}")")/settings"}
 
 #
 # in bytes

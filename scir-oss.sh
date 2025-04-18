@@ -40,7 +40,7 @@ readonly _version="pubRel 250417a (branch: publicRelease)"
 #
 # TODO: make this 'settings' folder path/name a command line arg
 #
-_OSSSCIRsettings=${_OSSSCIRsettings:-"/vagrant/scir-oss/settings"}
+_OSSSCIRsettings=${_OSSSCIRsettings:-"$(dirname "$(realpath "${0}")")/settings"}
 _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
 _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
 _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
@@ -5300,8 +5300,10 @@ check_runtime()
   #
   rm -f ./scir-dimg.*
   if ! docker image ls > ./scir-dimg.${$} 2>&1; then
-    _err "docker: sudo required see '$(realpath ./scir-dimg.${$})' for more details (e.g, sudo -E docker ...)"
+    _err "docker: sudo may be required see '$(realpath ./scir-dimg.${$})' for more details (e.g, sudo -E docker ...)"
     _rc=1
+  else
+    rm -f "./scir-dimg.${$}"
   fi
 
   local -n dimg
