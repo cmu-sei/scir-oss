@@ -5279,7 +5279,7 @@ check_runtime()
   #
   # the required binaries
   #
-  for cmd in ps pgrep bc jq curl docker base64 iconv shuf sha256sum
+  for cmd in ps pgrep bc jq curl docker base64 iconv sha256sum
   do
     [ -z "$(command -v "${cmd}")" ] &&
       _err "required command, ${cmd}: not found in path or not installed" &&
