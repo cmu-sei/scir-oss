@@ -4885,7 +4885,7 @@ grype_issues()
   # operates like scorecards, runs off levels in prjs.csv
   #
   _seq='^[0-9]+,'
-  [[ ${issueDepth} != "all" ]] && _seq="^($(seq --separator='|' 0 "${issueDepth}")),"
+  { [[ ${issueDepth} != "all" ]] && [[ ${issueDepth} != "auto" ]] ; } && _seq="^($(seq --separator='|' 0 "${issueDepth}")),"
 
   # ^0, is special - always do it it's SBOM is known
   IFS="," read -r _c __rootSBOM _m _o < "${__phy_prjs}"; unset _m _o
@@ -5002,7 +5002,7 @@ _MYLICEOF
     # TODO: test if __SBOM__ before this find and __PHYLUM__ for the next find
     #
     [[ "${__risk__}" == "vulnerabilities" ]] && [[ ! ${_grype_ver} == "unknown" ]] && _say "collecting grype vulnerabilities..." && \
-      xargs -a "${__grypeFiles}" -0 \
+      xargs -a "${__grypeFiles}" -0 | \
         jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
 
     # jq's arg _risk in quotes is NOT to be a shell expansion
