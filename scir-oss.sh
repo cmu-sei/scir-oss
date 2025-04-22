@@ -3861,7 +3861,7 @@ _run_criticality_score()
   { ${BFLAGS[crit]} || ${force_rebuild}; } &&
     cp /dev/null "${_joutput}"
 
-  [[ -s "${_OSSFCS}" ]] && [ ! -s "${_joutput}" ] && {
+  [[ -s "${_OSSFCS}" ]] && [[ -f "${_OSSFCS}" ]] && [ ! -s "${_joutput}" ] && {
     _say "running criticality score on ${1} to ${_joutput}";
     waitRateLimit "${_lowerLimit}";
     #
@@ -4953,7 +4953,7 @@ consolidate_issues()
 
   [[ ! ${_grype_ver} == "unknown" ]] && { _say -n " ..."
     __grypeFiles=$(mktemp -u -p . -t grype.XXXXXXXXXX) &&
-      find . -maxdepth 1 \( -name \*_sbom_grype.json \) -print0 > "${__grypeFiles}"
+      find . \( -name \*_sbom_grype.json \) -print0 > "${__grypeFiles}"
   }
   _say "OK"
 
@@ -5001,8 +5001,10 @@ _MYLICEOF
     #
     # TODO: test if __SBOM__ before this find and __PHYLUM__ for the next find
     #
-    [[ "${__risk__}" == "vulnerabilities" ]] && [[ ! ${_grype_ver} == "unknown" ]] && _say "collecting grype vulnerabilities..." && \
-      xargs -a "${__grypeFiles}" -0 | \
+    [[ "${__risk__}" == "vulnerabilities" ]] && 
+      [[ ! ${_grype_ver} == "unknown" ]]&& 
+      [[ -s ${__grypeFiles} ]] && _say "collecting grype vulnerabilities..." && \
+      xargs -a "${__grypeFiles}" -0 \
         jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
 
     # jq's arg _risk in quotes is NOT to be a shell expansion
@@ -6386,6 +6388,21 @@ __logger="cat"
 __logfil="${__NULLLOG__}"
 
 _cmdline="${0} ${*}"
+
+#
+# check bash version for compatibility issues
+#
+# bash 5.2 changed behavior of test -v on associative arrays indexed by @
+# using compat51 is a workaround for this test given how much it is used
+# in this scripts
+# TODO: work an acceptable bash 5.0 and greater test for unset associative
+#       arrays and remove this shopt
+#
+# this is an acceptable test for version numbers according to shellcheck
+# shellcheck disable=2072
+[[ (( "${BASH_VERSION/[^0-9.]*/}" > 5.1 )) ]] && { 
+  BASH_COMPAT=51
+}
 
 while getopts "c:d:f:hi:lopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
   case $opt in
