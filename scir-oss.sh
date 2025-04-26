@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250417a (branch: publicRelease)"
+readonly _version="pubRel 250425a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -3440,7 +3440,7 @@ _JQWALKEREOF
     # oldjobs is only for debug purposes and possible inspection
     #
     mkdir -p oldjobs
-    [[ -d oldjobs ]] && find  . -maxdepth 1 -name '*_job_*.json.*' -print0 | xargs -0 -I {} mv {} ./oldjobs/
+    [[ -d oldjobs ]] && find . -maxdepth 1 -name '*_job_*.json.*' -print0 | xargs -0 -I {} mv {} ./oldjobs/
     mv "${1}_job_${_job}.json" "oldjobs/${1}_job_${_job}.json.${RANDOM}";
     mv "${_jobFile}" "${1}_job_${_job}.json";
     _say "${_job} ${_verb} to ${1}_job_${_job}.json";
@@ -3890,6 +3890,33 @@ _run_criticality_score()
   return
 }
 
+__exec_scard()
+{
+  local _rc
+
+  _rc=1
+
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --alt1 ]]
+    shift 1
+  done
+
+  if "${_useDocker}"; then
+    # _CAStoreDocker needs to word split (SC2086)
+    # shellcheck disable=2086
+    docker run --rm ${_CAStoreDocker} \
+      -e SCORECARD_V6=true \
+      -e "GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN}" "${_OSSFSC}" \
+      --format=json --show-details \
+      --repo="${1}" && _rc=0
+
+  else
+    SCORECARD_V6=true "${_OSSFSC}" --format=json --show-details --repo="${1}" && _rc=0
+  fi
+
+  return ${_rc}
+}
 #
 # runs scorecard trying to make smart choices on errors
 #
@@ -3904,17 +3931,11 @@ _run_scorecard()
   { ${BFLAGS[scard]} || ${force_rebuild}; } &&
     cp /dev/null "${_joutput}"
 
-  # _CAStoreDocker needs to word split (SC2086)
-  # shellcheck disable=2086
   [ ! -s "${_joutput}" ] &&
     _prjurl="https://github.com/${1}" &&
     _say "running scorecard LIVE on ${_prjurl} to ${_joutput}" &&
     waitRateLimit "${_lowerLimit}" &&
-    docker run --rm ${_CAStoreDocker} \
-      -e SCORECARD_V6=true \
-      -e "GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN}" "${_OSSFSC}" \
-      --format=json --show-details \
-      --repo="${_prjurl}" > "${_joutput}" 2> "${_joutput}.err"
+    __exec_scard "${_prjurl}" > "${_joutput}" 2> "${_joutput}.err"
 
   #
   # TODO: silence this warning on things like "tarball" (and there
@@ -3934,6 +3955,37 @@ _run_scorecard()
     _warn "scorecard ${_joutput} over ${_cache_days}(s) days old, consider rebuilding (-f cards,scard)"
 
   return
+}
+
+__exec_hcheck()
+{
+  local _altexec
+  local _rc
+
+  _rc=1
+
+  _altexec="${_MITRHCquiet}"
+  while [[ "${1:0:2}" == "--" ]]
+  do
+    [[ ${1} == --alt1 ]] && _altexec+=" ${_MITRHCjson}"
+    shift 1
+  done
+
+  if "${_useDocker}"; then
+    # _CAStoreDocker, __MITRHCquiet, _MITRHCrepoCmd, _MITRHCjson need to word split (SC2086)
+    # shellcheck disable=2086
+    docker run --rm ${_CAStoreDocker} \
+      -v "${_MITRHCconfig}:/app/config" \
+      -v "${_MITRHCscripts}:/app/scripts" \
+      -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
+      ${_altexec} \
+      ${_MITRHCrepoCmd} "${_prjurl}" && _rc=0
+  else
+    # shellcheck disable=2086
+    HC_GITHUB_TOKEN="${GITHUB_AUTH_TOKEN}" "${_MITRHC}" --config "${_MITRHCconfig}" ${_altexec} ${_MITRHCrepoCmd} "${_prjurl}" && _rc=0
+  fi
+
+  return ${_rc}
 }
 
 #
@@ -3973,17 +4025,10 @@ _run_hipcheck()
   { ${BFLAGS[hcheck]} || ${force_rebuild}; } &&
     cp /dev/null "${_joutput}"
 
-  # _CAStoreDocker, __MITRHCquiet, _MITRHCrepoCmd, _MITRHCjson need to word split (SC2086)
-  # shellcheck disable=2086
   [ ! -s "${_joutput}" ] &&
     _say "running hipcheck on ${_prjurl} to ${_joutput}" &&
     waitRateLimit "${_lowerLimit}" &&
-    docker run --rm ${_CAStoreDocker} \
-      -v "${_MITRHCconfig}:/app/config" \
-      -v "${_MITRHCscripts}:/app/scripts" \
-      -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
-      ${_MITRHCquiet} \
-      ${_MITRHCrepoCmd} "${_prjurl}" > "${_toutput}" 2>&1 &&
+    __exec_hcheck "${_prjurl}" > "${_toutput}" 2>&1 &&
       {
         grep -E risk\ rated "${_toutput}" >/dev/null ||
         {
@@ -3992,13 +4037,7 @@ _run_hipcheck()
         }
       } &&
     waitRateLimit "${_lowerLimit}" &&
-    docker run --rm ${_CAStoreDocker} \
-      -v "${_MITRHCconfig}:/app/config" \
-      -v "${_MITRHCscripts}:/app/scripts" \
-      -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
-      ${_MITRHCjson} \
-      ${_MITRHCquiet} \
-      ${_MITRHCrepoCmd} "${_prjurl}" > "${_joutput}" &&
+    __exec_hcheck --alt1 "${_prjurl}" > "${_joutput}" &&
       { # mangle the json output to include the rationale from txt file
         head -n -2 "${_joutput}" ;
         b64=$(base64 -w 0 "${_toutput}") ;
@@ -4245,14 +4284,11 @@ __police_scorecards()
   local _containerPID
   local _containerCID
   local _politePolice
+  local _nameMatch
 
   _containerTimeout="${2}"
   _PIDtty="${3}"
   _politePolice=5
-
-  #
-  # TODO: fail to run it tty is "not a tty"
-  #       just error/return 3
 
   #
   # want this for synchronization
@@ -4266,48 +4302,51 @@ __police_scorecards()
 
   _scoreRunnerPID="${1}"
 
-  # want this though passed equals what was piped
-  ! pgrep -a -t "${_PIDtty}" | grep -q "${_scoreRunnerPID}" && {
-    _warn "no pid ${_scoreRunnerPID} on that tty ${_PIDtty}" &&
-    return 2
-  }
-
   # do this as long as our parent/grandparent is around (no zombies)
   while [[ -d /proc/${_scoreRunnerPID} ]]
   do
     # honor parent/grandparent job control (STOP|CONT)
     grep State "/proc/${_scoreRunnerPID}/status" |grep -q stopped && sleep "${_politePolice}" && _say "${_scoreRunnerPID} PAUSED" && continue
 
-    # only track containers on the same tty as a parent/grandparent
-    _containerPID=$(pgrep -a -t "${_PIDtty}" -f "docker run" | grep _TOKEN | awk '{ print $1 }')
-    #_containerPID=$(ps -ef|grep -i docker\ run | grep _TOKEN | awk '{ print $2 }')
+  if "${_useDocker}"; then
+    # only track containers matching our parent process ID
+    _containerPID=$(pgrep -a -P "${_scoreRunnerPID}" -f "docker run" | grep _TOKEN | awk '{ print $1 }')
+  else
+    # only track scorecard or hc (hipcheck) matching our parent process ID
+    _containerPID=$(pgrep -a -P "${_scoreRunnerPID}" "(scorecard|hc)" | awk '{ print $1 }')
+  fi
     [[ -z "${_containerPID}" ]] && sleep "${_politePolice}" && continue
 
+  if "${_useDocker}"; then
     #
     # TODO: not sure if possible, grab the right container
     #       if this returns more than one running container
     #
     _containerCID="$(docker ps |grep -v STATUS |awk '{ print $1 }')"
     [[ -z "${_containerCID}" ]] && sleep "${_politePolice}" && continue
-
+    _nameMatch="(scorecard|hipcheck)"
+    _say "watching PID=${_containerPID} ($(tr '\0' ' ' <"/proc/${_containerPID}/cmdline" | grep -o -E "${_nameMatch}" | head -1)), CONTAINER=${_containerCID} on ${_PIDtty/not a tty/no tty} not to exceed ${_containerTimeout} seconds"
+  else
+    _nameMatch="(scorecard|hipcheck|hc)"
+    _say "watching PID=${_containerPID} ($(tr '\0' ' ' <"/proc/${_containerPID}/cmdline" | sed 's^[[:space:]].*^^g;s/.*\///' | grep -o -E "${_nameMatch}" | head -1)), on ${_PIDtty/not a tty/no tty} not to exceed ${_containerTimeout} seconds"
+  fi
+    # have a thing to watch
     _start="${EPOCHSECONDS}"
 
-    _say "watching PID=${_containerPID} ($(tr '\0' ' ' <"/proc/${_containerPID}/cmdline" | grep -o -E '(scorecard|hipcheck)'|head -1)), CONTAINER=${_containerCID} on ${_PIDtty} not to exceed ${_containerTimeout} seconds"
-    #
-    # TODO: to be sure, track the PID not the ID
-    #       as the PID is likely the truth here
-    #       and less subject to disambiguation
-    #
-    #while [[ -n "${_containerCID}" ]]
-    while [[ -n "${_containerPID}" ]]
+    while [[ -d /proc/${_containerPID} ]]
     do
       [[ $(( EPOCHSECONDS - _start )) -ge _containerTimeout ]] &&
-        _warn "killed ${_containerPID}/${_containerCID}: working on $(tr '\0' ' ' <"/proc/${_containerPID}/cmdline")" &&
+        _warn "killed ${_containerPID}/${_containerCID}: working on $(tr '\0' ' ' <"/proc/${_containerPID}/cmdline" | sed 's/ghp_[[:alnum:]]*/ghp_\(redacted\)/g')" &&
+  if "${_useDocker}"; then
         docker kill "${_containerCID}"
+  else
+        # hipcheck uses child processes for parallel analyzes
+        pkill -TERM -P "${_containerPID}"
+        # pkill (here) does not kill the parent
+        kill -TERM "${_containerPID}"
+  fi
       sleep "${_politePolice}"
       grep State "/proc/${_scoreRunnerPID}/status" |grep -q stopped && _say "${_scoreRunnerPID} PAUSED breaking" && break
-      _containerPID=$(pgrep -a -t "${_PIDtty}" -f "docker run" | grep "${_containerPID}" | awk '{ print $1 }')
-      #_containerCID="$(docker ps |grep -v STATUS |grep "${_containerCID}" |awk '{ print $1 }')"
       _say -n "."
     done
     _say ""
@@ -4435,7 +4474,7 @@ build_scorecards()
      kill ${__policePID}
      wait ${__policePID}
    fi;
-    _say "done policing for potentially stalled scoring containers on pts/2";
+    _say "done policing for potentially stalled scoring containers on ${_mytty/\/dev\/}";
   }
 
   _say ""
@@ -5281,7 +5320,7 @@ check_runtime()
   #
   # the required binaries
   #
-  for cmd in ps pgrep bc jq curl docker base64 iconv sha256sum
+  for cmd in ps pgrep pkill bc jq curl $(${_useDocker} && echo docker) base64 iconv sha256sum
   do
     [ -z "$(command -v "${cmd}")" ] &&
       _err "required command, ${cmd}: not found in path or not installed" &&
@@ -5298,10 +5337,11 @@ check_runtime()
   done
 
   #
-  # the docker images
+  # the docker images if _useDocker is true
+  # the command executables if _useDocker is false
   #
   rm -f ./scir-dimg.*
-  if ! docker image ls > ./scir-dimg.${$} 2>&1; then
+  if ${_useDocker} && ! docker image ls > ./scir-dimg.${$} 2>&1; then
     _err "docker: sudo may be required see '$(realpath ./scir-dimg.${$})' for more details (e.g, sudo -E docker ...)"
     _rc=1
   else
@@ -5311,12 +5351,19 @@ check_runtime()
   local -n dimg
   for dimg in _OSSFSC _MITRHC
   do
-    _info "config docker image ${!dimg}=${dimg}"
-    local _dimgFile
-    _dimgFile=$(docker image ls ${dimg} | grep -E -v "REPOSITORY")
-    [ -z "${_dimgFile}" ] &&
-      _err "required docker image, ${dimg}: not found" &&
-      _rc=1
+    if "${_useDocker}"; then
+      _info "config docker image ${!dimg}=${dimg}"
+      local _dimgFile
+      _dimgFile=$(docker image ls ${dimg} | grep -E -v "REPOSITORY")
+      [ -z "${_dimgFile}" ] &&
+        _err "required docker image, ${dimg}: not found" &&
+        _rc=1
+    else
+      _info "config image ${!dimg}=${dimg}"
+      [ -z "$(command -v "${cmd}")" ] &&
+        _err "required command, ${cmd}: not found in path or not installed" &&
+        _rc=1
+    fi
   done
 
   local -n _sp
@@ -5343,10 +5390,10 @@ check_runtime()
   #
   # grab version numbers for report metadata
   #
-  _ossf_scorecard_ver="$(docker run --rm "${_OSSFSC}" version 2>&1 | grep GitVersion | cut -d: -f2 | sed 's/ //g')"
+  _ossf_scorecard_ver="$($("${_useDocker}" && echo docker run --rm) "${_OSSFSC}" version 2>&1 | grep GitVersion | cut -d: -f2 | sed 's/ //g')"
   [[ -z "${_ossf_scorecard_ver}" ]] && _warn "could not determine OSSF/Scorecard version" && _ossf_scorecard_ver="unknown"
 
-  _mitre_hipcheck_ver="$(docker run --rm "${_MITRHC}" --version | cut -d\  -f2)"
+  _mitre_hipcheck_ver="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" --version | cut -d\  -f2)"
   [[ -z "${_mitre_hipcheck_ver}" ]] && _warn "could not determine MITRE Hipcheck version" && _mitre_hipcheck_ver="unknown"
   # assume latest
   _MITRHCquiet="--verbosity quiet"
@@ -6374,6 +6421,16 @@ dependency_src=${component}
 dependency_type=
 
 #
+# variations and constrains when running IN a container
+#
+_useDocker=true
+_wkgDir="."
+[[ -n ${SCIR_CONTAINER} ]] && "${SCIR_CONTAINER}" && {
+  _useDocker=false
+  _wkgDir="oss-p4r"
+}
+
+#
 # errors always go to stderr
 #
 exec 7>&2
@@ -6569,10 +6626,10 @@ ${protectNoUpdate} && { ${force_rebuild} || ${BFLAGS[job]}; } &&
 if ! check_runtime; then _fatal "exiting due to missing or errored runtime requirement(s)"; fi
 
 _say "establishing componment working folder ${component}"
-mkdir -p "${component}"
+mkdir -p "${_wkgDir}/${component}"
 
 _say "setting current working folder to ${component}"
-pushd "${component}" >&"${_fdverbose}" || _fatal "can't set working folder to ${component}"
+pushd "${_wkgDir}/${component}" >&"${_fdverbose}" || _fatal "can't set working folder to ${_wkgDir}/${component}"
 
 date +%s > "${__RUNTIME__}"
 
@@ -6582,7 +6639,7 @@ date +%s > "${__RUNTIME__}"
 # legacy runs to this same folder
 #
 mkdir -p logs/
-[[ -d logs ]] && find  . -maxdepth 1 -name 'run-*.log' -print0 | xargs -0 -I {} mv {} ./logs/
+[[ -d logs ]] && find . -maxdepth 1 -name 'run-*.log' -print0 | xargs -0 -I {} mv {} ./logs/
 
 #
 # this log file will be moved later in cleanup
