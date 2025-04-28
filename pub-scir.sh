@@ -427,7 +427,7 @@ check_runtime()
   #
   # the binaries
   #
-  for cmd in jq curl
+  for cmd in jq curl file
   do
     [ -z "$(command -v ${cmd})" ] &&
       _err "required command, ${cmd}: not found in path or not installed" &&
@@ -511,6 +511,12 @@ attachment=
 attachonly=false
 recoverBOE=false
 recoverFILE=""
+
+_wkgDir="."
+[[ -n ${SCIR_CONTAINER} ]] && "${SCIR_CONTAINER}" && {
+  _useDocker=false
+  _wkgDir="oss-p4r"
+}
 
 #
 # errors always go to stderr
@@ -621,7 +627,7 @@ if ! check_runtime; then _fatal "exiting due to missing runtime requirement(s)";
 ${recoverBOE} && [[ ! -d "${component}" ]] && mkdir -p "${component}" && _say "Recovery mode, using folder ${component}"
 
 _say "setting current working folder to ${component}"
-pushd "${component}" >&"${_fdverbose}" || _fatal "can't set working folder to ${component}"
+pushd "${_wkgDir}/${component}" >&"${_fdverbose}" || _fatal "can't set working folder to ${_wkgDir}/${component}"
 
 #
 # since 'preMVP 240507a (branch: main)' tidy

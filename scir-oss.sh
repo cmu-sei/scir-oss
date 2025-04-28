@@ -5320,7 +5320,8 @@ check_runtime()
   #
   # the required binaries
   #
-  for cmd in ps pgrep pkill bc jq curl $(${_useDocker} && echo docker) base64 iconv sha256sum
+  # unzip is needed if phylum is to be installed
+  for cmd in ps pgrep pkill bc jq curl $(${_useDocker} && echo docker) base64 iconv sha256sum unzip
   do
     [ -z "$(command -v "${cmd}")" ] &&
       _err "required command, ${cmd}: not found in path or not installed" &&
@@ -6367,6 +6368,33 @@ _set_bldFlags()
 ###############################
 ###############################
 #{
+
+#
+# this is (now) the main entrypoint script for all oss-p4/r
+# capabilities, that being analysis (scir-oss.sh)
+# and publishing (pub-scir.sh).
+#
+case "${1,,}" in
+  publish)
+   shift 1
+   exec "$(dirname "$(realpath "$(command -v "${0}")")")/pub-scir.sh" "${@}"
+   ;;
+  analyze | report)
+   shift 1
+   ;;
+  -h|--h|--help|*) cat <<-_ENPTEOF
+  USAGE: ${0} COMMAND [OPTIONS]
+
+  COMMAND
+
+  analyze  Analyze to create or update and OSS-P4/R
+  publish  Publish a previously created OSS-P4/R analysis to Altassan's Confluence
+
+  For more information, run ${0} COMMAND -h
+_ENPTEOF
+  exit 0
+   ;;
+esac
 
 #
 # for GitHub API ratelimiting
