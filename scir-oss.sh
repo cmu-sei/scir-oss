@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250425a (branch: publicRelease)"
+readonly _version="pubRel 250502a (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -481,9 +481,10 @@ declare -A CIOsuitabilityWeights=( \
 #
 
 #
-# this one is populated dynamically
+# these are populated dynamically
 #
 declare -A SCcheckScores
+declare -A SCcheckMessage
 
 # shell checker does not see this is passed by ref
 # shellcheck disable=2034
@@ -705,6 +706,7 @@ _fotp()
   [[ "${1}" == "${__CHECKNOTIMPL__}" ]] && echo "${__WARNING__}" && return 1
   [[ "${1}" == "-1" ]] && echo "${__WARNING__}" && return 1
   [[ "${1}" == "${__NAN__}" ]] && echo "${__WARNING__}" && return 1
+  [[ -z "${1}" ]] && echo "${__WARNING__}-1" && return 1
 
   [[ "${2}" == "false" ]] || [[ "${2}" == "true" ]] && {
     [[ "${1}" != "${2}" ]] && _dblspace="" && _r="${_flag}" && _rc=2 && [[ "${_r}" == "${__WARNING__}" ]] && _rc=1
@@ -886,6 +888,56 @@ _scale_raw_score()
   return
 }
 
+jq_legacyHipcheckScores()
+{
+#  _debug "${FUNCNAME[0]} WITH ${1}"
+  {
+    jq -r '.passing[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${1}" ;
+    jq -r '.failing[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${1}" ;
+    jq -r '.errored[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${1}" ;
+  } | sed 's/[",]//g'
+  return 0
+}
+
+#
+# designed to return the same key values as the legacy hipcheck scores
+#
+jq_newHipcheckScores()
+{
+  local _func
+  local _thr
+  local _units
+  local _evalStr
+#  _debug "${FUNCNAME[0]} with ${1}"
+  {
+  jq -r '.passing[]|[.name,"=",.final_value,"=",.message]|@csv' "${1}"; \
+  jq -r '.failing[]|[.name,"=",.final_value,"=",.message]|@csv' "${1}"; \
+  jq -r '.errored[]|[.name,"=","","=",.error.msg]|@csv' "${1}"; \
+  } | sed 's/[",]//g' | \
+      while IFS="=" read -r check score message
+      do
+        check=${check/mitre\//};
+        #
+        # the thresholds are reported in the message
+        # in some cases the units are now part of the threshold and final value
+        # strip the units for now (units are only on Activity used to be weeks
+        # in the legacy scores now is in days)
+        # TODO: be sensitive to the units
+        #
+        _evalStr="$(
+          echo "${message}" | sed 's/ but[[:print:]].*$//g;' \
+          | sed 's/^[[:print:]]*\(to be less than or equal to\|to be equal to\)[[:space:]]\([[:digit:]]\.*[[:digit:]]*\|true\)[[:space:]]*\([[:print:]]*$\)/_func="\1"; _thr="\2"; _units="\3"/g'
+        )"
+        [[ "${message}" != "${_evalStr}" ]] && eval "${_evalStr}"
+        [[ -n "${_units}" ]] && score="${score/ ${_units}/}"
+        echo "${check^}=${score}=${_thr}"
+        unset _func
+        unset _thr
+        unset _units
+      done
+  return 0
+}
+
 jq_legacyPhylumScores()
 {
   local __myphyc
@@ -950,11 +1002,12 @@ _compute_p4_scores()
     CIOmalActorsScores[SCscore]="unknown"
     CIOsuitabilityScores[SCscore]="unknown"
   else #{
-    while IFS="=" read -r check score
+    while IFS="=" read -r check score reason
     do
       [[ "${score}" == "${SCfail}" || -z "${score}" ]] && score="${__NAN__}"
       SCcheckScores["${check}"]="${score}"
-    done < <(jq -r '.checks[]|[.name,"=",.score]|@csv' "${1}" | sed 's/[",]//g')
+      SCcheckMessage["${check}"]="${reason}"
+    done < <(jq -r '.checks[]|[.name,"=",.score,"=",.reason]|@csv' "${1}" | sed 's/[",]//g')
     #
     # the loop above assumes all checks were "run" for scorecard
     # webhooks may not have run this works around that
@@ -1009,7 +1062,12 @@ _compute_p4_scores()
     _SCcompositeScore=$(jq -r '.score' "${1}")
   fi #}
 
-  _say -n "HC, "
+  local __hcJQ
+  local __hcVersion=" (legacy), "
+  __hcJQ='jq_legacyHipcheckScores'
+  grep -s -q -E '(policy_expr)' "${2}" && { __hcJQ='jq_newHipcheckScores' && __hcVersion=", "; }
+
+  _say -n "HC${__hcVersion}"
 
   #
   # grab scores from Hipcheck checks
@@ -1030,7 +1088,7 @@ _compute_p4_scores()
     while IFS="=" read -r check score threshold
     do
       # use NaN to signify errored check
-      [[ -z "${score}" ]] && score="${__NAN__}"
+      [[ -z "${score}" ]] && score="${__NAN__}" #&& HCcheckError["${check}"]="${threshold}"
       #
       # shell check 0.8.0 seems to rightly calling the
       # assignment a noop and this should be removed
@@ -1044,21 +1102,22 @@ _compute_p4_scores()
       [[ -z "${threshold}" ]] && threshold="true"
       HCcheckScores["${check}"]="${score}"
       HCcheckThresholds["${check}"]="${threshold}"
-    done < <(
-    { \
-      jq -r '.passing[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${2}" ; \
-      jq -r '.failing[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${2}" ; \
-      jq -r '.errored[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${2}" ; \
-    } | sed 's/[",]//g')
+    done < <("${__hcJQ}" "${2}")
 
-    _HCrationale=$(jq -r '.rationale|@base64d' "${2}" |
-      grep Recommendation -A 1 |
-      tail -1 |
-      tr -d '\r' |
-      sed 's/^[ \t]*//;s/[ \t]*$//'
-    )
-    _HCscore=$(cut -d, -f1 < <(echo "${_HCrationale}") |cut -d\   -f5)
-    _HCrationale="$(_fotp "${_HCthreshold}" "${_HCscore}")${_HCrationale}"
+    if [[ ${__hcJQ} == 'jq_legacyHipcheckScores' ]]; then
+      _HCrationale=$(jq -r '.rationale|@base64d' "${2}" |
+        grep Recommendation -A 1 |
+        tail -1 |
+        tr -d '\r' |
+        sed 's/^[ \t]*//;s/[ \t]*$//'
+      )
+      _HCscore=$(cut -d, -f1 < <(echo "${_HCrationale}") |cut -d\   -f5)
+      _HCrationale="$(_fotp "${_HCthreshold}" "${_HCscore}")${_HCrationale}"
+    else
+      _HCscore=$(jq -r '.recommendation.risk_score' "${2}")
+      _HCrationale="$(jq -r '.recommendation.kind' "${2}") as risk rated as ${_HCscore}, acceptable below or equal to ${_HCthreshold}"
+      _HCrationale="$(_fotp "${_HCthreshold}" "${_HCscore}")${_HCrationale}"
+    fi
 
     # shellcheck disable=2086
     CIOlongTermScores[HCscore]=$(_compute_wScore \
@@ -1795,11 +1854,9 @@ _maintained()
   local _q
 
   if [ -s "${1}" ]; then
-    _v="$(jq -r '.checks[]|select(.name=="Maintained")|.score' "${1}")"
-    _scmsg="$(
-    echo -n "$(_fotp "${_v}" "${_SCthreshold}")";
-      jq -r '.checks[]|select(.name=="Maintained")|[.score," with ",.reason]|@csv' "${1}";
-    )"
+    _v="${SCcheckScores[Maintained]/${__NAN__}/}"
+    _q="${SCcheckMessage[Maintained]}"
+    _scmsg="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 with ${_q}";
   else
     _scmsg="No insight from scorecard"
   fi
@@ -1807,9 +1864,8 @@ _maintained()
   # shellcheck disable=2046
   _hcmsg="with no insight from hipcheck"
   if [ -s "${2}" ]; then
-    _v="$(jq -r '..|select(.analysis?=="Activity")|[.value,.threshold]|@csv' "${2}")"
-    _t="${_v//*,/}"
-    _v="${_v//,*/}"
+    _t="${HCcheckThresholds[Activity]}"
+    _v="${HCcheckScores[Activity]/${__NAN__}/}"
     _q="under or at"
     [[ -n "${_v}" ]] && {
       [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over"
@@ -1844,10 +1900,13 @@ _contrib_count()
 _contrib_org()
 {
   local _co
+  local _v
+  local _m
 
-  _co="$(jq -r '.checks[]|select(.name=="Contributors")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-  if [[ -n "${_co}" ]]; then
-    _co="$(_fotp "$(echo "${_co}" | cut -d, -f1)" "${_SCthreshold}")${_co}"
+  _v="${SCcheckScores[Contributors]/${__NAN__}/}"
+  _m="${SCcheckMessage[Contributors]}"
+  if [[ -n "${_v}" ]]; then
+    _co="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
   else
     _co="${__WARNING__} check for contributor diversity not run"
   fi
@@ -1972,10 +2031,13 @@ _criticality_score()
 _best_practices()
 {
   local _bp
+  local _v
+  local _m
 
-  _bp="$(jq -r '.checks[]|select(.name=="CII-Best-Practices")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-  if [[ -n "${_bp}" ]]; then
-    _bp="$(_fotp "$(echo "${_bp}" | cut -d, -f1)" "${_SCthreshold}")${_bp}"
+  _v="${SCcheckScores[CII-Best-Practices]/${__NAN__}/}"
+  _m="${SCcheckMessage[CII-Best-Practices]}"
+  if [[ -n "${_v}" ]]; then
+    _bp="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
   else
     _bp="${__WARNING__} check for best practices not run"
   fi
@@ -2036,7 +2098,6 @@ _license_risk()
   [[ $_pi == "()" ]] && _pi="no impacts"
   _r="${_p} and ${_pi} potentially reported from dependencies"
   { [[ "${_p}" =~ .*critical*. ]] || [[ "${_p}" =~ .*high*. ]]; } && _r="${__REDFLAG__}${_p}"
-  #{ [[ "${_p}" == *critical\;* ]] || [[ "${_p}" == *high\;* ]]; } && _r="${__REDFLAG__}${_p}"
   _ph=""
   "${_doPhylum}" && {
     _ph="Phylum reports ($(_fotp "${PHYcheckScores[license]}" "${PHYcheckThresholds[license]}")${PHYcheckScores[license]}): "
@@ -2058,7 +2119,6 @@ _eng_risk()
   _c="Detected in component(s): ${_c} ($(jq -r '.[]|select(.riskType=="engineeringRisk")|.impact' "${1}" | sort | uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g'))"
   _r="${_c} detected including dependencies"
   { [[ "${_c}" =~ .*critical*. ]] || [[ "${_c}" =~ .*high*. ]]; } && _r="${__REDFLAG__}${_c}"
-  #{ [[ "${_c}" == *critical\;* ]] || [[ "${_c}" == *high\;* ]]; } && _r="${__REDFLAG__}${_c}"
 
   echo "${_r}"
 
@@ -2076,7 +2136,6 @@ _mal_code()
   _c="Detected in component(s): ${_c} ($(jq -r '.[]|select(.riskType=="maliciousCodeRisk")|.impact' "${1}" | sort | uniq -c | sed 's/^[ \t]*//;s/[ \t]*$//' | tr "\n" ";" | sed 's/;/; /g;s/; $//g'))"
   _r="${_c} detected including dependencies"
   { [[ "${_c}" =~ .*critical*. ]] || [[ "${_c}" =~ .*high*. ]]; } && _r="${__REDFLAG__}${_c}"
-  #{ [[ "${_c}" == *critical\;* ]] || [[ "${_c}" == *high\;* ]]; } && _r="${__REDFLAG__}${_c}"
 
   echo "${_r}"
 
@@ -2089,16 +2148,19 @@ _vul_check()
   local _sr
   local _c
   local _r
+  local _v
+  local _m
 
   #
-  # see what OSSF scorecard reports
-  #_sc="$(jq -r '.checks[]|select(.name=="Vulnerabilities")|.details|length' "${2}")"
+  # TODO: see what OSSF scorecard reports
+  #_sc="$(jq -r '.checks[]|select(.name?=="Vulnerabilities")|.details|length' "${2}")"
   #_sr="${_sc} vul(s) found in the primary component"
   #[[ "${_sc}" -le "0" ]] && _sr="No vuls found in primary component"
 
   if [ -s "${2}" ]; then
-    _sc="$(jq -r '.checks[]|select(.name=="Vulnerabilities")|[.score,"/10 as ",.reason," (open, known unfixed vulnerabilities)"]|@csv' "${2}")"
-    _sc="$(_fotp "$(echo "${_sc}" | cut -d, -f1)" "${_SCthreshold}")${_sc}"
+    _v="${SCcheckScores[Vulnerabilities]/${__NAN__}/}"
+    _m="${SCcheckMessage[Vulnerabilities]}"
+    _sc="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m} (open, known unfixed vulnerabilities)"
   else
     _sc="no insight from scorecard"
   fi
@@ -2127,9 +2189,12 @@ _dep_pinned()
   ${__ghSKIP} && echo "Unknown, project is not on GitHub" && return
 
   local _dpin
+  local _v
+  local _m
 
-  _dpin="$(jq -j -r '.checks[]|select(.name=="Pinned-Dependencies")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-  _dpin="$(_fotp "$(echo "${_dpin}" | cut -d, -f1)" "${_SCthreshold}")${_dpin}"
+  _v="${SCcheckScores[Pinned-Dependencies]/${__NAN__}/}"
+  _m="${SCcheckMessage[Pinned-Dependencies]}"
+  _dpin="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
   echo "${_dpin}" | tr -d '\n' | sed 's/\n//g;s/\r//g;s/"//g;s/ ,/ /g;s^,/^/^g;'
   return
 }
@@ -2138,8 +2203,10 @@ _dep_up2date()
 {
   ${__ghSKIP} && echo "Unknown, project is not on GitHub" && return
 
-  _sc="$(jq -r '.checks[]|select(.name=="Dependency-Update-Tool")|.score' "${1}")"
-  _sr="$(jq -r '.checks[]|select(.name=="Dependency-Update-Tool")|.reason' "${1}")"
+  local _sc
+  local _sr
+  _sc="${SCcheckScores[Dependency-Update-Tool]/${__NAN__}/}"
+  _sr="${SCcheckMessage[Dependency-Update-Tool]}"
 
   case "${_sc}" in
     -1)
@@ -2157,11 +2224,7 @@ _dep_up2date()
       ;;
   esac
 
-  # shellcheck disable=2046
-  echo $(
-    echo "${_sc} with ${_sr}"
-    echo "; investigate if any dependencies apply to more than the pipeline";
-  ) | sed 's/"//g;s/ ,/ /g'
+  echo "${_sc} with ${_sr}; investigate if any dependencies apply to more than the pipeline" | sed 's/"//g;s/ ,/ /g'
   return
 }
 
@@ -2226,11 +2289,11 @@ _code_scanners()
   local _t
   local _v
   local _q
+  local _msg
 
   _hcmsg="with no insight from hipcheck"
   if [ -s "${2}" ]; then
-    _v="$(jq -r '..|select(.analysis?=="Fuzz")|[.value]|@csv' "${2}")"
-    _v="${_v//,*/}"
+    _v="${HCcheckScores[Fuzz]/${__NAN__}/}"
     _q=""
     [[ -n "${_v}" ]] && {
       [ "${_v}" = "false" ] && _q="${__REDFLAG__}not "
@@ -2239,13 +2302,17 @@ _code_scanners()
   fi
 
   if [ -s "${1}" ]; then
-    _fuzz="$(jq -r '.checks[]|select(.name=="Fuzzing")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-    _fuzz="$(_fotp "$(echo "${_fuzz}" | cut -d, -f1)" "${_SCthreshold}")${_fuzz}"
-    _sast="$(jq -r '.checks[]|select(.name=="SAST")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-    _sast="$(_fotp "$(echo "${_sast}" | cut -d, -f1)" "${_SCthreshold}")${_sast}"
-    _ci="$(jq -r '.checks[]|select(.name=="CI-Tests")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-    _ci="$(_fotp "$(echo "${_ci}" | cut -d, -f1)" "${_SCthreshold}")${_ci}"
-    _msg="${_fuzz} ${_hcmsg}<br/>${_sast}, and <br/>${_ci}";
+    _v="${SCcheckScores[Fuzzing]/${__NAN__}/}"
+    _m="${SCcheckMessage[Fuzzing]}"
+    _msg="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m} ${_hcmsg}<br/>"
+
+    _v="${SCcheckScores[SAST]/${__NAN__}/}"
+    _m="${SCcheckMessage[SAST]}"
+    _msg="${_msg}$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}, and <br/>"
+
+    _v="${SCcheckScores[CI-Tests]/${__NAN__}/}"
+    _m="${SCcheckMessage[CI-Tests]}"
+    _msg="${_msg}$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
   else
     _msg="no insight from scorecard and ${_hcmsg}"
   fi
@@ -2256,16 +2323,30 @@ _code_scanners()
 
 _repo_protections()
 {
+  local _v
+  local _m
+  local _bp
+  local _dw
+  local _tp
+  local _wh
+
   ${__ghSKIP} && echo "Unknown, project is not on GitHub" && return
-  _bp="$(jq -r '.checks[]|select(.name=="Branch-Protection")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-  _bp="$(_fotp "$(echo "${_bp}" | cut -d, -f1)" "${_SCthreshold}")${_bp}"
-  _dw="$(jq -r '.checks[]|select(.name=="Dangerous-Workflow")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-  _dw="$(_fotp "$(echo "${_dw}" | cut -d, -f1)" "${_SCthreshold}")${_dw}"
-  _tp="$(jq -r '.checks[]|select(.name=="Token-Permissions")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-  _tp="$(_fotp "$(echo "${_tp}" | cut -d, -f1)" "${_SCthreshold}")${_tp}"
-  _wh="$(jq -r '.checks[]|select(.name=="Webhooks")|[.score,"/10 as ",.reason]|@csv' "${1}")"
+  _v="${SCcheckScores[Branch-Protection]/${__NAN__}/}"
+  _m="${SCcheckMessage[Branch-Protection]}"
+  _bp="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
+
+  _v="${SCcheckScores[Dangerous-Workflow]/${__NAN__}/}"
+  _m="${SCcheckMessage[Dangerous-Workflow]}"
+  _dw="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
+
+  _v="${SCcheckScores[Token-Permissions]/${__NAN__}/}"
+  _m="${SCcheckMessage[Token-Permissions]}"
+  _tp="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
+
+  _v="${SCcheckScores[Webhooks]/${__NAN__}/}"
+  _m="${SCcheckMessage[Webhooks]}"
   if [[ -n "${_wh}" ]]; then
-    _wh="$(_fotp "$(echo "${_wh}" | cut -d, -f1)" "${_SCthreshold}")${_wh}"
+    _wh="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
   else
     _wh="${__WARNING__} check that webhooks is configured supporting secrets not run"
   fi
@@ -2278,47 +2359,39 @@ _peer_reviews()
 {
   local _t
   local _v
+  local _m
   local _q
   local _verb
+  local _scmsg
+  local _hcmsg
 
   if [ -s "${2}" ]; then
-    _v="$(jq -r 'def pct: .*10000.0|round/100; ..|select(.analysis?=="Review")|[(.value|pct),(.threshold|pct)]|@csv' "${2}")"
-    _t="${_v//*,/}"
-    _v="${_v//,*/}"
+    _t="${HCcheckThresholds[Review]}"
+    _v="${HCcheckScores[Review]/${__NAN__}/}"
     _q="under"
     _verb="receiving"
     [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over" && _verb="lacking"
 
-    _v2="$(jq -r 'def pct: .*10000.0|round/100; ..|select(.analysis?=="Identity")|[(.value|pct),(.threshold|pct)]|@csv' "${2}")"
-    _t2="${_v2//*,/}"
-    _v2="${_v2//,*/}"
+    _t2="${HCcheckThresholds[Identity]}"
+    _v2="${HCcheckScores[Identity]/${__NAN__}/}"
     _q2="under"
     _verb2="not"
     [[ $(echo "${_v2} > ${_t2}" | bc -l) -eq 1 ]] && _q2="${__REDFLAG__}over" && _verb2="too"
-    _hcmsg="$(
-      echo "with change requests often ${_verb} approving review prior to merge with ${_v}% ${_q} the ${_t}% threshold"
-      echo "and commits ${_verb2} often applied by the author with ${_v2}% ${_q2} the ${_t2}% threshold"
-    )"
+    _hcmsg="with change requests often ${_verb} approving review prior to merge with $(_fppp "$((${#_t}-1))" "$(echo "${_v} * 100" | bc -l)")% ${_q} the $(_fppp "auto" "$(echo "${_t} * 100" | bc -l)")% threshold"
+    _hcmsg="${_hcmsg} and commits ${_verb2} often applied by the author with $(_fppp "$((${#_t2}-1))" "$(echo "${_v2} * 100" | bc -l)")% ${_q2} the $(_fppp "auto" "$(echo "${_t2} * 100" | bc -l)")% threshold"
   else
     _hcmsg="with no insight from hipcheck"
   fi
 
   if [ -s "${1}" ]; then
-    _v3="$(jq -r '.checks[]|select(.name=="Code-Review")|.score' "${1}")"
-    [[ $(echo "${_v3} <= (10/3)" | bc -l) -eq 1 ]] && _v3="${__REDFLAG__}${_v3}"
-    _scmsg="$(
-      echo "Count pending; and activity is ${_v3}";
-      jq -r '.checks[]|select(.name=="Code-Review")|["as ",.reason]|@csv' "${1}"
-    )"
+    _v="${SCcheckScores[Code-Review]/${__NAN__}/}"
+    _m="${SCcheckMessage[Code-Review]}"
+    _scmsg="Count pending; and activity is $(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
   else
     _scmsg="Count pending; and no insight from scorecard"
   fi
 
-  # shellcheck disable=2046
-  echo $(
-    echo "${_scmsg}";
-    echo "${_hcmsg}";
-  ) | sed 's/"//g;s/ ,/ /g'
+  echo "${_scmsg} ${_hcmsg}" | sed 's/"//g;s/ ,/ /g'
   return
 }
 
@@ -2330,9 +2403,8 @@ _large_commits()
   local _qq
 
   if [ -s "${2}" ]; then
-    _v="$(jq -r '..|select(.analysis?=="Churn")|[.value,.threshold]|@csv' "${2}")"
-    _t="${_v//*,/}"
-    _v="${_v//,*/}"
+    _t="${HCcheckThresholds[Churn]}"
+    _v="${HCcheckScores[Churn]/${__NAN__}/}"
     if [ -z "${_v}" ]; then
       _hcmsg="$(jq -r '..|select(.analysis?=="Churn")|[.error.msg," as ",.error.source.msg]|@csv' "${2}" | sed 's/\"//g;s/,//g')"
       _hcmsg="${__WARNING__}${_hcmsg^}"
@@ -2341,7 +2413,7 @@ _large_commits()
       _qq=" some "
       [[ $(echo "${_v} <= 0" | bc -l) -eq 1 ]] && _qq=" no "
       [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _qq=" " && _q="${__REDFLAG__}over"
-      _hcmsg="Detected${_qq}unusually large commits being $(_fppp "auto" "${_v}") found ${_q} the ${_t} permitted threshold"
+      _hcmsg="Detected${_qq}unusually large commits being $(_fppp "$((${#_t}-1))" "${_v}") found ${_q} the ${_t} permitted threshold"
     fi
   else
     _hcmsg="with no insight from hipcheck"
@@ -2359,9 +2431,8 @@ _obscure_code()
   local _qq
 
   if [ -s "${2}" ]; then
-    _v="$(jq -r '..|select(.analysis?=="Entropy")|[.value,.threshold]|@csv' "${2}")"
-    _t="${_v//*,/}"
-    _v="${_v//,*/}"
+    _t="${HCcheckThresholds[Entropy]}"
+    _v="${HCcheckScores[Entropy]/${__NAN__}/}"
     if [ -z "${_v}" ]; then
       _hcmsg="$(jq -r '..|select(.analysis?=="Entropy")|[.error.msg," as ",.error.source.msg]|@csv' "${2}" | sed 's/\"//g;s/,//g')"
       _hcmsg="${__WARNING__}${_hcmsg^}"
@@ -2393,9 +2464,8 @@ _binary_artifacts()
   #
   _hcmsg="with no insight from hipcheck"
   if [ -s "${2}" ]; then
-    _v="$(jq -r '..|select(.analysis?=="Binary")|[.value,.threshold]|@csv' "${2}")"
-    _t="${_v//*,/}"
-    _v="${_v//,*/}"
+    _t="${HCcheckThresholds[Binary]}"
+    _v="${HCcheckScores[Binary]/${__NAN__}/}"
     _q="under or at"
     [[ -n "${_v}" ]] && {
       [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over";
@@ -2404,16 +2474,14 @@ _binary_artifacts()
   fi
 
   if [ -s "${1}" ]; then
-    _scmsg="$(jq -r '.checks[]|select(.name=="Binary-Artifacts")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-    _scmsg="$(_fotp "$(echo "${_scmsg}" | cut -d, -f1)" "${_SCthreshold}")${_scmsg}"
+    _v="${SCcheckScores[Binary-Artifacts]/${__NAN__}/}"
+    _m="${SCcheckMessage[Binary-Artifacts]}"
+    _scmsg="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
   else
     _scmsg="no insight from scorecard"
   fi
-  # shellcheck disable=2046
-  echo $(
-    echo "${_scmsg}"
-    echo "${_hcmsg}"
-  ) | sed 's/"//g;s/ ,/ /g;s^,/^/^g;'
+
+  echo "${_scmsg} ${_hcmsg}" | sed 's/"//g;s/ ,/ /g;s^,/^/^g;'
   return
 }
 
@@ -2424,9 +2492,8 @@ _typo_risk()
   local _q
 
   if [ -s "${3}" ]; then
-    _v="$(jq -r '..|select(.analysis?=="Typo")|[.value,.threshold]|@csv' "${3}")"
-    _t="${_v//*,/}"
-    _v="${_v//,*/}"
+    _t="${HCcheckThresholds[Typo]}"
+    _v="${HCcheckScores[Typo]/${__NAN__}/}"
     if [ -z "${_v}" ]; then
       _hcmsg="$(jq -r '..|select(.analysis?=="Typo")|[.error.msg," as ",.error.source.msg]|@csv' "${3}" | sed 's/\"//g;s/,//g')"
       _hcmsg="${__WARNING__}${_hcmsg^}"
@@ -2456,23 +2523,36 @@ _problem_reporting()
 
 _vulsec_reporting()
 {
+  local _v
+  local _m
+  local _vuls
+
   ${__ghSKIP} && echo "Unknown, project is not on GitHub" && return
 
-  _vuls="$(jq -r '.checks[]|select(.name=="Security-Policy")|[.score,"/10 as ",.reason]|@csv' "${1}" | sed 's/"//g;s/ ,/ /g;s^,/^/^g;')"
-  _vuls="$(_fotp "$(echo "${_vuls}" | cut -d/ -f1)" "${_SCthreshold}")${_vuls}"
-  echo "${_vuls}"
+  _v="${SCcheckScores[Security-Policy]/${__NAN__}/}"
+  _m="${SCcheckMessage[Security-Policy]}"
+  _vuls="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
+  echo "${_vuls}" | sed 's/"//g;s/ ,/ /g;s^,/^/^g;'
   return
 }
 
 _signed_releases()
 {
+  local _v
+  local _m
+  local _sign
+  local _pkg
+
   ${__ghSKIP} && echo "Unknown, project is not on GitHub" && return
 
-  _sign="$(jq -j -r '.checks[]|select(.name=="Signed-Releases")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-  _sign="$(_fotp "$(echo "${_sign}" | cut -d, -f1)" "${_SCthreshold}")${_sign}"
-  _pkg="$(jq -j -r '.checks[]|select(.name=="Packaging")|[.score,"/10 as ",.reason]|@csv' "${1}")"
-  _pkg="$(_fotp "$(echo "${_pkg}" | cut -d, -f1)" "${_SCthreshold}")${_pkg}"
-  echo -n "${_sign}, and<br/>${_pkg}; investigate if any such signing(s) are crytopgraphic" | sed 's/"//g;s/ ,/ /g;s^,/^/^g;'
+  _v="${SCcheckScores[Signed-Releases]/${__NAN__}/}"
+  _m="${SCcheckMessage[Signed-Releases]}"
+  _sign="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
+
+  _v="${SCcheckScores[Packaging]/${__NAN__}/}"
+  _m="${SCcheckMessage[Packaging]}"
+  _pkg="$(_fotp "${_v}" "${_SCthreshold}")${_v}/10 as ${_m}"
+  echo "${_sign}, and<br/>${_pkg}; investigate if any such signing(s) are crytopgraphic" | sed 's/"//g;s/ ,/ /g;s^,/^/^g;'
   return
 }
 
@@ -2488,9 +2568,8 @@ _badactors()
   else #{
     _hcmsg="with no insight from hipcheck"
     if [ -s "${2}" ]; then
-      _v="$(jq -r '..|select(.analysis?=="Affiliation")|[.value,.threshold]|@csv' "${2}")"
-      _t="${_v//*,/}"
-      _v="${_v//,*/}"
+    _t="${HCcheckThresholds[Affiliation]}"
+    _v="${HCcheckScores[Affiliation]/${__NAN__}/}"
       _q="at or under"
       [[ -n "${_v}" ]] && {
         [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over"
