@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250502a (branch: publicRelease)"
+readonly _version="pubRel 250504bwu (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -562,8 +562,8 @@ declare -A SCcheckThresholds=( \
 # these two are populated dynamically
 #
 declare -A HCcheckScores
-
 declare -A HCcheckThresholds
+declare -A HCcheckMessages
 
 declare -A HCcheckLabels=( \
   [Activity]="Commit Activity" \
@@ -892,9 +892,9 @@ jq_legacyHipcheckScores()
 {
 #  _debug "${FUNCNAME[0]} WITH ${1}"
   {
-    jq -r '.passing[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${1}" ;
-    jq -r '.failing[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${1}" ;
-    jq -r '.errored[]|[.analysis,"=",.value,"=",.threshold]|@csv' "${1}" ;
+    jq -r '.passing[]|[.analysis,"=",.value,"=",.threshold,"=",""]|@csv' "${1}" ;
+    jq -r '.failing[]|[.analysis,"=",.value,"=",.threshold,"=",""]|@csv' "${1}" ;
+    jq -r '.errored[]|[.analysis,"=",.value,"=",.threshold,"=",.error.source.msg]|@csv' "${1}" ;
   } | sed 's/[",]//g'
   return 0
 }
@@ -910,11 +910,11 @@ jq_newHipcheckScores()
   local _evalStr
 #  _debug "${FUNCNAME[0]} with ${1}"
   {
-  jq -r '.passing[]|[.name,"=",.final_value,"=",.message]|@csv' "${1}"; \
-  jq -r '.failing[]|[.name,"=",.final_value,"=",.message]|@csv' "${1}"; \
-  jq -r '.errored[]|[.name,"=","","=",.error.msg]|@csv' "${1}"; \
+  jq -r '.passing[]|[.name,"=",.final_value,"=",.message,"=",""]|@csv' "${1}"; \
+  jq -r '.failing[]|[.name,"=",.final_value,"=",.message,"=",""]|@csv' "${1}"; \
+  jq -r '.errored[]|[.name,"=",.final_value,"=",.message,"=",.error.msg]|@csv' "${1}"; \
   } | sed 's/[",]//g' | \
-      while IFS="=" read -r check score message
+      while IFS="=" read -r check score message errmsg
       do
         check=${check/mitre\//};
         #
@@ -930,10 +930,11 @@ jq_newHipcheckScores()
         )"
         [[ "${message}" != "${_evalStr}" ]] && eval "${_evalStr}"
         [[ -n "${_units}" ]] && score="${score/ ${_units}/}"
-        echo "${check^}=${score}=${_thr}"
+        echo "${check^}=${score}=${_thr}=${errmsg}"
         unset _func
         unset _thr
         unset _units
+        unset errmsg
       done
   return 0
 }
@@ -1085,7 +1086,7 @@ _compute_p4_scores()
     CIOmalActorsScores[HCscore]="unknown"
     CIOsuitabilityScores[HCscore]="unknown"
   else #{
-    while IFS="=" read -r check score threshold
+    while IFS="=" read -r check score threshold reason
     do
       # use NaN to signify errored check
       [[ -z "${score}" ]] && score="${__NAN__}" #&& HCcheckError["${check}"]="${threshold}"
@@ -1102,6 +1103,7 @@ _compute_p4_scores()
       [[ -z "${threshold}" ]] && threshold="true"
       HCcheckScores["${check}"]="${score}"
       HCcheckThresholds["${check}"]="${threshold}"
+      HCcheckMessages["${check}"]="${reason}"
     done < <("${__hcJQ}" "${2}")
 
     if [[ ${__hcJQ} == 'jq_legacyHipcheckScores' ]]; then
@@ -2401,19 +2403,21 @@ _large_commits()
   local _v
   local _q
   local _qq
+  local _precision
 
   if [ -s "${2}" ]; then
     _t="${HCcheckThresholds[Churn]}"
     _v="${HCcheckScores[Churn]/${__NAN__}/}"
     if [ -z "${_v}" ]; then
-      _hcmsg="$(jq -r '..|select(.analysis?=="Churn")|[.error.msg," as ",.error.source.msg]|@csv' "${2}" | sed 's/\"//g;s/,//g')"
-      _hcmsg="${__WARNING__}${_hcmsg^}"
+      _warn "hipcheck analysis, churn, failed to run: ${HCcheckMessages[Churn]}"
+      _hcmsg="${__WARNING__}Failed to analyze commits - internal error"
     else
       _q="under or at"
       _qq=" some "
-      [[ $(echo "${_v} <= 0" | bc -l) -eq 1 ]] && _qq=" no "
-      [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _qq=" " && _q="${__REDFLAG__}over"
-      _hcmsg="Detected${_qq}unusually large commits being $(_fppp "$((${#_t}-1))" "${_v}") found ${_q} the ${_t} permitted threshold"
+      _precision="auto"
+      [[ $(echo "${_v} <= 0" | bc -l) -eq 1 ]] && _precision="$((${#_t}-1))" && _qq=" no "
+      [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _precision="$((${#_t}-1))" && _qq=" " && _q="${__REDFLAG__}over"
+      _hcmsg="Detected${_qq}unusually large commits being $(_fppp "${_precision}" "${_v}") found ${_q} the ${_t} permitted threshold"
     fi
   else
     _hcmsg="with no insight from hipcheck"
@@ -2434,8 +2438,8 @@ _obscure_code()
     _t="${HCcheckThresholds[Entropy]}"
     _v="${HCcheckScores[Entropy]/${__NAN__}/}"
     if [ -z "${_v}" ]; then
-      _hcmsg="$(jq -r '..|select(.analysis?=="Entropy")|[.error.msg," as ",.error.source.msg]|@csv' "${2}" | sed 's/\"//g;s/,//g')"
-      _hcmsg="${__WARNING__}${_hcmsg^}"
+      _warn "hipcheck analysis, entropy, failed to run: ${HCcheckMessages[Entropy]}"
+      _hcmsg="${__WARNING__}Failed to analyze commits - internal error"
     else
       _q="under or at"
       _qq=" some "
@@ -2495,8 +2499,8 @@ _typo_risk()
     _t="${HCcheckThresholds[Typo]}"
     _v="${HCcheckScores[Typo]/${__NAN__}/}"
     if [ -z "${_v}" ]; then
-      _hcmsg="$(jq -r '..|select(.analysis?=="Typo")|[.error.msg," as ",.error.source.msg]|@csv' "${3}" | sed 's/\"//g;s/,//g')"
-      _hcmsg="${__WARNING__}${_hcmsg^}"
+      _warn "hipcheck analysis, Typo, failed to run: ${HCcheckMessages[Typo]}"
+      _hcmsg="${__WARNING__}Failed to analyze for typos - can't identify a known language"
     else
       _q="under or at"
       [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over"
