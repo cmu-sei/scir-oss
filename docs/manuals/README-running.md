@@ -49,7 +49,7 @@ After obtaining those indicators, ```scir-oss.sh```:
   * 4 “P(s)”
   * DoD CIO’s criteria
 
-Reports can also be published to Confluence via ```pub-scir.sh```, (3).
+Reports can also be published to Confluence via ```scir-oss.sh publish```, (3).
 
 ## QUICK START
 
@@ -92,11 +92,21 @@ _LOCAL_ancestorTitle="OSS-P4 Reports"
 ```
 ### Command line
 
-#### scir-oss: Make an OSS-P4/R
-```
+#### scir-oss: Analyze and make an OSS-P4/R report
+```bash
 $ cd scir-oss
 $ ./scir-oss.sh -h
-  USAGE: ./scir-oss.sh [OPTIONS]
+  USAGE: ./scir-oss.sh COMMAND [OPTIONS]
+
+  COMMAND
+
+  analyze  Analyze to create or update and OSS-P4/R
+  publish  Publish a previously created OSS-P4/R analysis to Altassan's Confluence
+
+  For more information, run /home/hc_user/.local/bin/scir-oss.sh COMMAND -h
+
+$ ./scir-oss.sh analyze -h
+  USAGE: ./scir-oss.sh analyze [OPTIONS]
 
   OPTIONS
 
@@ -143,11 +153,11 @@ $ ./scir-oss.sh -h
 ```
 Explaination: TBD
 
-#### pub-scir: Publish an OSS-P4/R to Confluence
+#### scir-oss: Publish an OSS-P4/R to Confluence
 ```
 $ cd scir-oss
-$ ./pub-scir.sh -h
-  USAGE: ./pub-scir.sh [OPTIONS]
+$ ./scir-oss.sh publish -h
+  USAGE: ./scir-oss.sh publish [OPTIONS]
 
   OPTIONS
 
@@ -184,61 +194,61 @@ Explaination: TBD
 #### A complete OSS project on GitHub previously analyzed by Phylum.io
 * To make an OSS-P4/R
 ```
-./scir-oss.sh -l -v -D all -B -C fleetth -G fleetdm/fleet -P fleetth:phylum
+./scir-oss.sh analyze -l -v -D all -B -C fleetth -G fleetdm/fleet -P fleetth:phylum
 ```
 * To publish that OSS-P4/R
 ```
-./pub-scir.sh -l -v -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area'
+./scir-oss.sh publish -l -v -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area'
 ```
 
 #### A complete OSS project on GitHub using an SBOM produced by GitHub
 * To make an OSS-P4/R
 ```
-./scir-oss.sh -l -v -D all -B -C fleetth -G fleetdm/fleet -P github:sbom
+./scir-oss.sh analyze -l -v -D all -B -C fleetth -G fleetdm/fleet -P github:sbom
 ```
 * To publish that OSS-P4/R
 ```
-./pub-scir.sh -l -v -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area'
+./scir-oss.sh publish -l -v -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area'
 ```
 
 #### A complete OSS project on GitHub using an SBOM produced entirely locally
 * To make an OSS-P4/R
 ```
-./scir-oss.sh -l -v -D all -B -C fleetth -G fleetdm/fleet -P fleet_syft_sbom.json:sbom
+./scir-oss.sh analyze -l -v -D all -B -C fleetth -G fleetdm/fleet -P fleet_syft_sbom.json:sbom
 ```
 * To publish that OSS-P4/R
 ```
-./pub-scir.sh -l -v -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area'
+./scir-oss.sh publish -l -v -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area'
 ```
 
 #### A made-up (local) project previously analyzed by Phylum.io (not on GitHub)
 * To make an OSS-P4/R
 ```
-./scir-oss.sh -C jray -P jray:phylum
+./scir-oss.sh analyze -C jray -P jray:phylum
 ```
 * To publish that OSS-P4/R
 ```
-./pub-scir.sh -C jray -T 'jray (a deep-dive into JFrog Xray)' -S MYDOCS -A 'Scratch Test Area'
+./scir-oss.sh publish -C jray -T 'jray (a deep-dive into JFrog Xray)' -S MYDOCS -A 'Scratch Test Area'
 ```
 
 #### A known package URI which is on GitHub (helpful if it is known to be on Phylum)
 * To make an OSS-P4/R
 ```
-./scir-oss.sh -C myany -G chrunlee/anywhere-auth -P 'npm:anywhere-auth:1.0.2:phylum'
+./scir-oss.sh analyze -C myany -G chrunlee/anywhere-auth -P 'npm:anywhere-auth:1.0.2:phylum'
 ```
 * To publish that OSS-P4/R
 ```
-./pub-scir.sh -C myany -S MYDOCS -A 'Scratch Test Area'
+./scir-oss.sh publish -C myany -S MYDOCS -A 'Scratch Test Area'
 ```
 
 #### Produce and archive the Body of Evidence in the OSS-P4/R production
 * To produce the BoE
 ```
-./scir-oss.sh -o -B -C fleetth -G fleetdm/fleet
+./scir-oss.sh analyze -o -B -C fleetth -G fleetdm/fleet
 ```
 * To archive/publish that BoE
 ```
-./pub-scir.sh -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area' -o -a fleetth-scir-p4r-boe_sha256:<insert specific hash>.tgz
+./scir-oss.sh publish -C fleetth -T 'Fleet' -S MYDOCS -A 'Scratch Test Area' -o -a fleetth-scir-p4r-boe_sha256:<insert specific hash>.tgz
 ```
 ### Example
 #### Generated Files
@@ -414,7 +424,7 @@ These folders contain the level 2 and beyond package dependencies and end in ```
 ##### BoE
 - ```-scir-p4r-boe_sha256:<hash value>.tgz``` is the tarball of 'The Files' (listed here)
 
-#### Command line Args ```scir-oss.sh``` (some described)
+#### Command line Args ```scir-oss.sh analyze``` (some described)
 
 ##### (```-p```) Protect
 
@@ -423,12 +433,12 @@ select which reports to (re-)generate, currently ```'all'``` is the only report 
 ##### (```-W```) Watch
 watchdog to terminate docker containers that run longer that specified seconds (default is 300) as a means to guard against containers may be "stuck" or run for too long (for instance, running ```hipcheck``` on the linux kernel github repo can take over an hour)
 
-#### Command line Args ```pub-scir.sh```
+#### Command line Args ```scir-oss.sh publish```
 
 
 ## Rebuilding
 
-- to rebuild everything, use the ```-f all``` flag for ```scir-oss.sh```
+- to rebuild everything, use the ```-f all``` flag for ```scir-oss.sh analyze```
 
 For selective rebuilding:
 
@@ -457,7 +467,7 @@ WARNING: hipcheck skipping aws/aws-sdk-go-v2, del deps.d/aws___aws-sdk-go-v2/aws
 
 Explaination: TBD
 
-### scir-oss.sh binaries
+### scir-oss.sh analyze binaries
 
 ```
 bash (version >= 5.0)
@@ -473,7 +483,7 @@ shuf (GNU coreutils) 8.30
 tar (GNU tar) 1.30
 ```
 
-### pub-scir.sh binaries
+### pub-scir.sh publish binaries
 
 ```
 bash (version >= 5.0)
@@ -552,7 +562,7 @@ cat scir-full-digraph.txt | \
 cat scir-report-digraph.txt | dot -Tpdf > scir-report-digraph.pdf
 ```
 
-### pub-scir.sh
+### pub-scir.sh (aka scir-oss.sh publish)
 
 ```
 bash /home/vagrant/src/shell-call-graph/shell-call-graph ./pub-scir.sh > pub-full-digraph.txt

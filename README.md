@@ -19,14 +19,14 @@ of the project and those project's dependencies.
 # Obtain supply chain inforrmation about a Open Source project given
 # its GitHub name and repository and any Software Bill of Materials
 # represented by the project and its dependencies.
-scir-oss.sh -C oparest -G go-training/opa-restful -P github:sbom 
+scir-oss.sh analyze -C oparest -G go-training/opa-restful -P github:sbom 
 
 # Perform the same analysis with a Software Bill of Materials generated
 # in SPDX from a locally scanned folder
-scir-oss.sh -C oparest -G go-training/opa-restful -P myOpaRest.spdx.json:sbom 
+scir-oss.sh analyze -C oparest -G go-training/opa-restful -P myOpaRest.spdx.json:sbom 
 
 # After analysis, published the results to an Atlassian Confluence site
-pub-scir.sh -C oparest -T "OPA REST-API" -S MySpace -A "OSS-P4/R Reports"
+scir-oss.sh publish -C oparest -T "OPA REST-API" -S MySpace -A "OSS-P4/R Reports"
 
 # Or, view the results using a local Markdown viewer
 glow oparest/oparest_scir.md
@@ -40,7 +40,7 @@ For more information, check out the [Quickstart Guide][quickstart].
 
 ## Installation
 
-See the [Installation Instructions][install].
+See the [Installation Instructions][install] or [Docker Installation Instructions][docker-install]
 
 ## License
 
@@ -67,6 +67,7 @@ found in the [`LICENSE`](license.txt) file in this repository.
 
 [quickstart]: ./docs/manuals/README-running.md
 [install]: ./docs/manuals/README-install.md
+[docker-install]: ./docs/manuals/README-docker.md
 [license]: https://github.com/cmu-sei/scir-oss/blob/main/license.txt
 [release]: https://github.com/cmu-sei/scir-oss
 [rfd_2]: https://hipcheck.mitre.org/docs/rfds/0002/

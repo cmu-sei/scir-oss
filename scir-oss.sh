@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250504bwu (branch: publicRelease)"
+readonly _version="pubRel 250516evie (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -678,6 +678,19 @@ declare -A MYcheckThresholds=( \
 declare -A foundLicenses
 
 declare -A licenseChecks
+
+#
+# lifted from https://stackoverflow.com/questions/4023830/how-to-compare-two-strings-in-dot-separated-version-format-in-bash
+# only works on systems with coreutils - see link for alternatives
+#
+# example:
+#   ver_between 1.2 1.3 1.5 && echo "yes" || echo "no"
+#
+ver_between()
+{
+  # args: min, actual, max
+  printf '%s\n' "$@" | sort -C -V
+}
 
 #
 # helper to emit (or not) a red flag
@@ -1871,6 +1884,10 @@ _maintained()
     _q="under or at"
     [[ -n "${_v}" ]] && {
       [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over"
+      #
+      # TODO: new hc schema reports in days - units are parsed correctly
+      #       but parsing is in a subshell - need to get units back to
+      #       parent to fix that here: change 'week' to proper unit
       _hcmsg="with most recent activity being ${_v} weeks ${_q} the ${_t} week threshold";
     }
   fi
@@ -2570,14 +2587,14 @@ _badactors()
     _hcmsg=" (and contributor's affiliations unknown as project is not on GitHub)"
     _v=0
   else #{
-    _hcmsg="with no insight from hipcheck"
+    _hcmsg="No insight from hipcheck"
     if [ -s "${2}" ]; then
     _t="${HCcheckThresholds[Affiliation]}"
     _v="${HCcheckScores[Affiliation]/${__NAN__}/}"
       _q="at or under"
       [[ -n "${_v}" ]] && {
         [[ $(echo "${_v} > ${_t}" | bc -l) -eq 1 ]] && _q="${__REDFLAG__}over"
-        _hcmsg="with contributors affiliations being ${_v} found ${_q} the ${_t} permitted threshold";
+        _hcmsg="Hipcheck contributors affiliations being ${_v} found ${_q} the ${_t} permitted threshold";
       }
     fi
   fi #}
@@ -2590,8 +2607,8 @@ _badactors()
     # account for legacy and new Phylum json format
     # assumes compute_p4_scores called before _badactors
     [[ "${_score,,}" == "null" ]] && _score="${PHYcheckScores[author]}"
-    _phmsg="No, none reported"
-    [[ ! "${_score}" == "${__NAN__}" ]] && [[ $(echo "${_score}" "<" "1.00" | bc -l) -eq 1 ]] && _phmsg="${__REDFLAG__}Yes, something reported, investigate"
+    _phmsg="No, none reported by Phylum.io."
+    [[ ! "${_score}" == "${__NAN__}" ]] && [[ $(echo "${_score}" "<" "1.00" | bc -l) -eq 1 ]] && _phmsg="${__REDFLAG__}Yes, something reported by Phylum.io, investigate."
   else
     _phmsg="no insight from Phylum"
   fi
@@ -4016,7 +4033,7 @@ _run_scorecard()
 
   [ ! -s "${_joutput}" ] &&
     _prjurl="https://github.com/${1}" &&
-    _say "running scorecard LIVE on ${_prjurl} to ${_joutput}" &&
+    _say "running scorecard on ${_prjurl} to ${_joutput}" &&
     waitRateLimit "${_lowerLimit}" &&
     __exec_scard "${_prjurl}" > "${_joutput}" 2> "${_joutput}.err"
 
@@ -4062,10 +4079,10 @@ __exec_hcheck()
       -v "${_MITRHCscripts}:/app/scripts" \
       -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
       ${_altexec} \
-      ${_MITRHCrepoCmd} "${_prjurl}" && _rc=0
+      ${_MITRHCrepoCmd} "${1}" && _rc=0
   else
     # shellcheck disable=2086
-    HC_GITHUB_TOKEN="${GITHUB_AUTH_TOKEN}" "${_MITRHC}" --config "${_MITRHCconfig}" ${_altexec} ${_MITRHCrepoCmd} "${_prjurl}" && _rc=0
+    HC_GITHUB_TOKEN="${GITHUB_AUTH_TOKEN}" "${_MITRHC}" --config "${_MITRHCconfig}" ${_altexec} ${_MITRHCrepoCmd} "${1}" && _rc=0
   fi
 
   return ${_rc}
@@ -4108,8 +4125,27 @@ _run_hipcheck()
   { ${BFLAGS[hcheck]} || ${force_rebuild}; } &&
     cp /dev/null "${_joutput}"
 
-  [ ! -s "${_joutput}" ] &&
-    _say "running hipcheck on ${_prjurl} to ${_joutput}" &&
+  [ ! -s "${_joutput}" ] && {
+    _say "running hipcheck on ${_prjurl} to ${_joutput}"
+    waitRateLimit "${_lowerLimit}" &&
+    __exec_hcheck --alt1 "${_prjurl}" > "${_joutput}" 2> "${_toutput}" &&
+      {
+        grep -q -E '"recommendation":' "${_joutput}" ||
+        {
+          _warn "hipcheck ${_toutput} failed, see file for hints"
+          mv "${_joutput}" "${_joutput}".err # TODO: not sure i need this .err
+          return
+        }
+      }
+    #
+    # in later versions of hipcheck there are errors reported by
+    # plugins which are really informational given that a message
+    # later appears in the JSON errored struct that repeats that
+    # same problem, ignore these for now
+    #
+    sed -i '/ERROR plugin::/d' "${_toutput}"
+
+   if ver_between 0 "${_mitre_hipcheck_ver}" "${_MITRHCnewSchemaVersion}"; then
     waitRateLimit "${_lowerLimit}" &&
     __exec_hcheck "${_prjurl}" > "${_toutput}" 2>&1 &&
       {
@@ -4118,10 +4154,6 @@ _run_hipcheck()
           _warn "hipcheck ${_toutput} failed, see file for hints" &&
           return
         }
-      } &&
-    waitRateLimit "${_lowerLimit}" &&
-    __exec_hcheck --alt1 "${_prjurl}" > "${_joutput}" &&
-      { # mangle the json output to include the rationale from txt file
         head -n -2 "${_joutput}" ;
         b64=$(base64 -w 0 "${_toutput}") ;
         echo '  },';
@@ -4131,6 +4163,8 @@ _run_hipcheck()
       mv "${_joutput}.tmp" "${_joutput}" &&
       if jq -r '.' "${_joutput}" > /dev/null 2>&1; then rm "${_toutput}"; fi &&
       [ -s "${_toutput}" ] && _warn "json filter error, ${_toutput} not deleted"
+   fi
+  }
 
   [ ! -s "${_joutput}" ] &&
     _warn "hipcheck ${_joutput} is incomplete, consider rebuilding (-f cards,hcheck)" &&
@@ -4611,8 +4645,15 @@ _val_hipcheck()
 
   [ -s "${_joutput}" ] &&
     {
+      #
+      # a valid hipcheck file has 2 structures if early scheme
+      # otherwise it only has 1 structure we're searching for
+      #
       [ "$(jq -r '.recommendation.kind' "${_joutput}")" == "null" ] ||
+      {
+      ! grep -s -q -E '(policy_expr)' "${_joutput}" &&
       [ "$(jq -r '.rationale' "${_joutput}")" == "null" ];
+      }
     } &&
     _warn "hipcheck ${_joutput} failed, consider rebuilding (-f scores)"
 
@@ -5480,11 +5521,15 @@ check_runtime()
   _mitre_hipcheck_ver="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" --version | cut -d\  -f2)"
   [[ -z "${_mitre_hipcheck_ver}" ]] && _warn "could not determine MITRE Hipcheck version" && _mitre_hipcheck_ver="unknown"
   # assume latest
+  # --quiet 3.1.x thru 3.2.1 otherwise '--verbosity quiet' 3.3.0 onward
+  # --json 3.1.x thru 3.2.1 otherwise '--format json' 3.3.0 onward
+  # check repo 3.1.x thru 3.2.1 otherwise 'check' 3.3.0 onward
   _MITRHCquiet="--verbosity quiet"
   _MITRHCjson="--format json"
   _MITRHCrepoCmd="check"
+  _MITRHCnewSchemaVersion="3.12.0"
   case "${_mitre_hipcheck_ver}" in
-    3.1.*)
+    3.1.*|3.2.*)
        _MITRHCquiet="${_MITRHCquiet/verbosity /}"
        _MITRHCjson="${_MITRHCjson/format /}"
        _MITRHCrepoCmd="${_MITRHCrepoCmd/check/check repo}"
@@ -6655,7 +6700,7 @@ while getopts "c:d:f:hi:lopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
        _CAStoreDocker="-v ${_CAStoreVolume}:/etc/ssl/certs/ca-certificates.crt"
        ;;
     h|*) cat <<-_OPTSEOF
-  USAGE: ${0} [OPTIONS]
+  USAGE: ${0} analyze [OPTIONS]
 
   OPTIONS
 

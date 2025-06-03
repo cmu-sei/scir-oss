@@ -564,7 +564,7 @@ while getopts "a:hilopqvA:BC:R:S:T:V" opt; do #{
     T) _pageTitle="${OPTARG}" ;;
     V) echo "Version: ${_version} for Server at ${_CONFSVR}" && _fatal "" ;;
     h|*) cat <<-_OPTSEOF
-  USAGE: ${0} [OPTIONS]
+  USAGE: ${0} publish [OPTIONS]
 
   OPTIONS
 
