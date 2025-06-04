@@ -52,6 +52,8 @@ cmu-sei/scir-oss              prod    bf55152dc404   28 minutes ago  744MB
 #
 # persistent phylum API key and settings
 # *optionally required* if phylum CLI is to be used
+# -v /dev/null:/home/hc_user/.config/phylum/settings.yaml 
+# can be used as a place holder
 # 
   -v ~/p4wkg/cache/phylum/settings.yaml:/home/hc_user/.config/phylum/settings.yaml
 ```
@@ -76,21 +78,57 @@ cmu-sei/scir-oss              prod    bf55152dc404   28 minutes ago  744MB
 #
   -e _LOCAL_CONFSVR=https://confluence.example.com
 ```
+## Example Setup
+```bash
+#
+# make working volume folder and cache folders
+#
+mkdir -p ~/p4wkg/cache/grype ~/p4wkg/cache/hipcheck
+sudo chown -R 1001:1001 ~/p4wkg
 
-### Example Analyze (SCIR-OSS)
+#
+# confirm docker build
+#
+$ docker run --rm cmu-sei/scir-oss:prod analyze -V
+Version: pubRel 250516evie (branch: publicRelease)
+
+$ docker run --rm -e _LOCAL_CONFSVR=https://confluence.example.com cmu-sei/scir-oss:prod publish -V
+Version: pubRel 250417a (branch: publicRelease) for Server at https://confluence.example.com
+
+#
+# pre-build grype cache
+#
+$ docker run --rm --entrypoint=/home/hc_user/.local/bin/grype cmu-sei/scir-oss:prod --version
+grype 0.92.2
+
+$ docker run --rm -v ~/p4wkg/cache/grype:/home/hc_user/.cache/grype -v ~/p4wkg/cache/hipcheck:/home/hc_user/.cache/hipcheck --entrypoint=/home/hc_user/.local/bin/grype cmu-sei/scir-oss:prod db update
+Vulnerability database updated to latest version!
+
+$ docker run --rm -v ~/p4wkg/cache/grype:/home/hc_user/.cache/grype -v ~/p4wkg/cache/hipcheck:/home/hc_user/.cache/hipcheck -e GRYPE_DB_VALIDATE_AGE=false --entrypoint=/home/hc_user/.local/bin/grype cmu-sei/scir-oss:prod db status -o json
+{
+ "schemaVersion": "v6.0.2",
+ "from": "https://grype.anchore.io/databases/v6/vulnerability-db_v6.0.2_2025-06-04T01:32:23Z_1749035557.tar.zst?checksum=sha256%3A77238f4ffbc7cf72bf4dedabbb21a3d0dd3ade90fb5d9df7c4da2870f8d1a9b7",
+ "built": "2025-06-04T11:12:37Z",
+ "path": "/home/hc_user/.cache/grype/db/6/vulnerability.db",
+ "valid": true
+}
+
+```
+
+## Example Analyze (SCIR-OSS)
 
 ```bash
 $ docker run --rm \
   -e GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN} \
   -e HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN} \
   -v ~/p4wkg:/app/oss-p4r \
-  -v ~/p4wkg/cache/phylum/settings.yaml:/home/hc_user/.config/phylum/settings.yaml \
+  -v /dev/null:/home/hc_user/.config/phylum/settings.yaml \
   -v ~/p4wkg/cache/grype:/home/hc_user/.cache/grype \
   -v ~/p4wkg/cache/hipcheck:/home/hc_user/.cache/hipcheck \
-  cmu-sei/scir-oss:prod analyze -l -v -C hadoop0340 -G apache/hadoop -P github:sbom -W 600 -d 3 -D 0 
+  cmu-sei/scir-oss:prod analyze -l -v -C oparest -G go-training/opa-restful -P github:sbom
 ```
 
-### Example Publish (PUB-SCIR)
+## Example Publish (PUB-SCIR)
 
 ```bash
 $ docker run --rm \
@@ -99,8 +137,8 @@ $ docker run --rm \
   -e GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN} \
   -e HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}   \
   -v ~/p4wkg:/app/oss-p4r   \
-  -v ~/p4wkg/cache/phylum/settings.yaml:/home/hc_user/.config/phylum/settings.yaml   \
+  -v /dev/null:/home/hc_user/.config/phylum/settings.yaml   \
   -v ~/p4wkg/cache/grype:/home/hc_user/.cache/grype   \
   -v ~/p4wkg/cache/hipcheck:/home/hc_user/.cache/hipcheck \
-  cmu-sei/scir-oss:prod publish -l -v -C hadoop0340 -T 'Apache Hadoop SBOM' -S MYDOCS -A 'OSS-P4/R Reports'
+  cmu-sei/scir-oss:prod publish -l -v -C oparest -T 'OPA Rest API SBOM' -S MYDOCS -A 'OSS-P4/R Reports'
 ```
