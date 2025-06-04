@@ -24,7 +24,7 @@
 # DM24-0786
 # 
  
-readonly _version="pubRel 250417a (branch: publicRelease)"
+readonly _version="pubRel 250516evie (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
