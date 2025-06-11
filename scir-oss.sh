@@ -2557,6 +2557,29 @@ _vulsec_reporting()
   return
 }
 
+_dcoSigned_commits()
+{
+  echo "Manual"
+  return
+}
+
+_signed_commits()
+{
+  local _valid
+  local _total
+
+  ${__ghSKIP} && echo "Unknown, project is not on GitHub" && return
+
+  _valid="$(jq -r '.[]|[.sha,.commit.verification.verified]|@csv' "${1}" 2>/dev/null|grep -c ,true)"
+  _total="$(jq -r '.[]|[.sha,.commit.verification.verified]|@csv' "${1}" 2>/dev/null|grep -c .)"
+  [[ "${_total}" == "0" ]] && echo "Manual, no commits detected in ${1}" && return
+
+  #
+  # multiply by 10 to get this into the range of 0 - 10
+  echo "$(_fotp "$(echo "${_valid} / ${_total} * 10" | bc -l)" "${_SCthreshold}")${_valid} of the last ${_total} commits have a valid cryptographic signature."
+  return
+}
+
 _signed_releases()
 {
   local _v
@@ -4888,14 +4911,14 @@ build_caches()
 
   #${force_rebuild} &&
   if ${BFLAGS[caches]} || ${force_rebuild} || grep -q Bad\ credentials "${__ghrjson}"; then
-    _say -n "forced clearing GH credential caches..."
-    rm -f "${__ghrcontribjson}"
+    _say -n "forced clearing GH credential and commit caches..."
+    rm -f "${__ghrcontribjson}" "${__ghrcommitjson}"
   fi
 
   ${__ghSKIP} && echo "{ }" > "${__ghrcontribjson}"
 
   [ ! -f "${__ghrcontribjson}" ] &&
-    _say -n "building GH contributor caches..." &&
+    _say -n "building GH contributor and commit caches..." &&
       {
         cp /dev/null "${__ghrcontribjson}"
         #
@@ -4911,6 +4934,20 @@ build_caches()
           done >> "${__ghrcontribjson}" \
        ||
        _fatal "gh-api contrib pre-cache failed.";
+
+        cp /dev/null "${__ghrcommitjson}"
+        #
+        # do no more than the last 100 commits (a choice not a limit)
+        # shellcheck disable=SC2043
+        for pg in 1
+          do
+             curl --silent \
+               -H "Accept: application/vnd.github+json" \
+               -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
+               "${__ghr}/commits?per_page=100&page=${pg}"
+          done >> "${__ghrcommitjson}" \
+       ||
+       _fatal "gh-api commit pre-cache failed.";
       };
 
   [ ! -f "${__ghrcontribjson}" ] &&
@@ -4918,10 +4955,18 @@ build_caches()
 
   if grep -q Bad\ credentials "${__ghrcontribjson}"; then _fatal "${__ghrcontribjson} bad GITHUB_AUTH_TOKEN credentials"; fi
 
+  [ ! -f "${__ghrcommitjson}" ] &&
+    _fatal "${__ghrcommitjson} is missing or empty"
+
+  if grep -q Bad\ credentials "${__ghrcommitjson}"; then _fatal "${__ghrcommitjson} bad GITHUB_AUTH_TOKEN credentials"; fi
+
   _say "OK"
 
   [ "$(find "${__ghrcontribjson}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
     _warn "${__ghrcontribjson} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
+
+  [ "$(find "${__ghrcommitjson}" -mtime +"${_cache_days}" -print 2>/dev/null)" ] &&
+    _warn "${__ghrcommitjson} over ${_cache_days}(s) days old, consider rebuilding (-f caches)"
 
   #########
   # pre-cache SBOM
@@ -5350,6 +5395,7 @@ check_scir_files()
   for _fil in "${__ghrjson}" \
               "${__ghrsbomjson}" \
               "${__ghrcontribjson}" \
+              "${__ghrcommitjson}" \
               "${__ghhtml}" \
               "${__phy_prjs}" \
               "${__component_dep_graph}" \
@@ -5910,14 +5956,14 @@ _phylumeof
  },
  {
    "id": "${_LOCAL_SIGNED_COMMITS_ID}",
-   "value": "Manual",
+   "value": "$(_dcoSigned_commits /dev/null)",
    "label": "${_LOCAL_SIGNED_COMMITS_LABEL}",
    "description": "${_LOCAL_SIGNED_COMMITS_DESC}",
    "risk": "${_LOCAL_SIGNED_COMMITS_RISK}"
  },
  {
    "id": "${_LOCAL_CRYPTO_SIGNED_COMMITS_ID}",
-   "value": "Manual",
+   "value": "$(_signed_commits "${__ghrcommitjson}")",
    "label": "${_LOCAL_CRYPTO_SIGNED_COMMITS_LABEL}",
    "description": "${_LOCAL_CRYPTO_SIGNED_COMMITS_DESC}",
    "risk": "${_LOCAL_CRYPTO_SIGNED_COMMITS_RISK}"
@@ -6854,6 +6900,7 @@ __ghhtml=$(basename "${gh_site}")_gh.html
 __ghrjson=$(basename "${gh_site}")_ghapi.json
 __ghrsbomjson=$(basename "${gh_site}")_ghapi_sbom.json
 __ghrcontribjson=$(basename "${gh_site}")_ghapi_contrib.json
+__ghrcommitjson=$(basename "${gh_site}")_ghapi_commit.json
 
 #
 # if running offline (-O) there has to be cached files

@@ -8,21 +8,16 @@ ARG SC_VERSION="5.2.1"
 WORKDIR /app
 
 #
-# this is required for hipcheck
+# first install is required for hipcheck
+# second install is for OSS-P4/R
 #
 RUN set -eux \
     && apt-get update \
-    && apt-get install --no-install-recommends -y ca-certificates git curl xz-utils mold \
+    && apt-get install --no-install-recommends -y ca-certificates git curl xz-utils \
+    && apt-get install --no-install-recommends -y procps bc jq unzip file \
     && rm -rf /var/lib/apt/lists/* \
     && adduser --disabled-password hc_user \
     && chown -R hc_user /app
-
-#
-# this is required for OSS-P4/R
-#
-RUN set -eux \
-    && apt-get update \
-    && apt-get install --no-install-recommends -y ca-certificates procps bc jq unzip file
 
 USER hc_user
 ENV HOME=/home/hc_user 
@@ -70,7 +65,7 @@ RUN set -eux \
     && tar xfz scorecard_${SC_VERSION}_linux_amd64.tar.gz -C ${HOME}/.local/bin/ scorecard \
     && rm -f scorecard_${SC_VERSION}_linux_amd64.tar.gz scorecard_checksums.txt
 
-COPY --from=cmu-sei/criticality_score:dev /home/nonroot/criticality_score ${HOME}/.local/bin/criticality_score
+COPY --chown=hc_user:hc_user --from=cmu-sei/criticality_score:dev /home/nonroot/criticality_score ${HOME}/.local/bin/criticality_score
 
 RUN set -eux \
     && mkdir -p ${HOME}/.local/bin/settings
@@ -78,9 +73,9 @@ RUN set -eux \
 #
 # installs OSS-P4/R scripts and config files
 #
-ADD scir-oss.sh ${HOME}/.local/bin/
-ADD pub-scir.sh ${HOME}/.local/bin/
-ADD settings/ ${HOME}/.local/bin/settings/
+COPY --chown=hc_user:hc_user scir-oss.sh ${HOME}/.local/bin/
+COPY --chown=hc_user:hc_user pub-scir.sh ${HOME}/.local/bin/
+COPY --chown=hc_user:hc_user settings/ ${HOME}/.local/bin/settings/
 
 USER root
 RUN chown hc_user:hc_user ${HOME}/.local/bin/settings/scir-oss/localizations.lib.sh
