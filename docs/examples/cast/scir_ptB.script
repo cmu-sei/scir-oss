@@ -1,0 +1,5 @@
+#
+# two report forms are generated
+#   one for Atlassian's Confluence (try links oparest/*scir*html, somewhat ugly)
+#   one as a simple Markdown version of the same (for local viewing or otherwise)
+#
