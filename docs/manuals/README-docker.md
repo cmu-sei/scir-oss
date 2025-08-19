@@ -50,6 +50,13 @@ cmu-sei/scir-oss              prod    bf55152dc404   28 minutes ago  744MB
 #
   -v ~/p4wkg/cache/hipcheck:/home/hc_user/.cache/hipcheck
 #
+# imported SBOM (see -P <jsonfile>:sbom)
+# *optionally required* if an SBOM file is provided
+# -v <>:/app/<>
+# e.g. -v ~/p4wkg/oparest.spdx.json:/app/oparest.spdx.json
+#
+  -v ~/p4wkg/cache/phylum/settings.yaml:/home/hc_user/.config/phylum/settings.yaml
+#
 # persistent phylum API key and settings
 # *optionally required* if phylum CLI is to be used
 # -v /dev/null:/home/hc_user/.config/phylum/settings.yaml 

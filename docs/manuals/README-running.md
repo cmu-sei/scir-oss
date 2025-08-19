@@ -273,6 +273,7 @@ drwxr-xr-x 1 user group      96 mmm dd hh:mm deps.d
 -rw-r--r-- 1 user group   35917 mmm dd hh:mm fleetth_scir.json
 -rw-r--r-- 1 user group   31383 mmm dd hh:mm fleetth_scir.html
 -rw-r--r-- 1 user group   10882 mmm dd hh:mm fleetth_scir.md
+-rw-r--r-- 1 user group  298831 mmm dd hh:mm fleetth_scir.www.html
 -rw-r--r-- 1 user group 7398096 mmm dd hh:mm fleetth-scir-p4r-boe_sha256:<sha256sum>.tgz
 drwxr-xr-x 1 user group     320 mmm dd hh:mm logs
 drwxr-xr-x 1 user group    2080 mmm dd hh:mm oldjobs
@@ -420,6 +421,9 @@ These folders contain the level 2 and beyond package dependencies and end in ```
 
 ##### Rough approximation of the Confluence html rendered in Markdown
 - ```_scir.md```
+
+##### Confluence html rendered in basic HTML free from Confluence objects (may become the default)
+- ```_scir.www.html```
 
 ##### BoE
 - ```-scir-p4r-boe_sha256:<hash value>.tgz``` is the tarball of 'The Files' (listed here)

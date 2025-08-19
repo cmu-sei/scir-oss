@@ -16,7 +16,7 @@ of the project and those project's dependencies.
 ![Example](./docs/examples/oparest_example.svg)
 
 ```sh
-# Obtain supply chain inforrmation about a Open Source project given
+# Obtain supply chain inforrmation about an Open Source project given
 # its GitHub name and repository and any Software Bill of Materials
 # represented by the project and its dependencies.
 scir-oss.sh analyze -C oparest -G go-training/opa-restful -P github:sbom 
@@ -28,9 +28,14 @@ scir-oss.sh analyze -C oparest -G go-training/opa-restful -P myOpaRest.spdx.json
 # After analysis, published the results to an Atlassian Confluence site
 scir-oss.sh publish -C oparest -T "OPA REST-API" -S MySpace -A "OSS-P4/R Reports"
 
+# Or, view the results using a local web browser as an HTML viewer
+${using_your_favorite_browser_open} oparest/oparest_scir.www.html
+
 # Or, view the results using a local Markdown viewer
 glow oparest/oparest_scir.md
 ```
+
+[Click here to see the complete OPA REST-API report in web browser](https://html-preview.github.io/?url=https://github.com/cmu-sei/scir-oss/blob/main/docs/examples/oparest_scir.www.html)
 
 [Click here to see the complete OPA REST-API report in Markdown](./docs/examples/oparest_scir.md)
 

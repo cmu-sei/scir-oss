@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250516evie (branch: publicRelease)"
+readonly _version="pubRel 250818 (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -182,7 +182,9 @@ function urldecode() { local i="${*//+/ }"; echo -ne "${i//%/\\x}" | tr -d '[:cn
 # confluence-specific HTML
 #
 readonly __REDFLAG__="<ac:emoticon ac:name='cross'/>"
+readonly __REDSVGFLAG__='<svg width="16" height="16" viewBox="0 -0 100 100"><circle cx="50" cy="50" r="40" fill="red" /><path d="M30 30 L70 70" stroke="white" stroke-width="8" stroke-linecap="round"/><path d="M70 30 L30 70" stroke="white" stroke-width="8" stroke-linecap="round"/></svg>'
 readonly __WARNING__="<ac:emoticon ac:name='warning'/>"
+readonly __WARNINGSVG__='<svg width="16" height="16" viewBox="0 0 100 100"><path d="M50 10 L90 90 H10 Z" fill="yellow" stroke="black" stroke-width="4"/><line x1="50" y1="35" x2="50" y2="60" stroke="black" stroke-width="6" stroke-linecap="round"/><circle cx="50" cy="72" r="4" fill="black"/></svg>'
 readonly __SECTION__="<hr style='border: 10px solid gray; border-radius: 5px'/>"
 
 readonly __NULLGH__=":owner/:repo"
@@ -1520,6 +1522,9 @@ _wwwhtml_tabledata_start()
   [[ "${1/=*}" == "hdr" ]] && {
     _v="${1/hdr=}";
     [[ -n ${_v} ]] && _beg="<th>";
+  }
+  [[ "${2/=*}" == "bg" ]] && {
+    _beg="<td style='background-color:${2/bg=};'>"
   }
 
   echo "${_beg}${_v}"
@@ -5730,32 +5735,78 @@ _saveOff_json_Raw_scores()
 #
 # inspired by https://github.com/MrMarble/termsvg/blob/master/scripts/update-filesize.sh
 #
-_compile_md_p4report()
+_compile_other_p4reports()
 {
   local _MDTABLE
+  local _WWTABLE
   local _col1
   local _col2
+  local _col1desc
   local _col2clean
   local id
 
+  #
+  # preamble for the MD file
+  #
   read -r -d '' _MDTABLE << EOS
   | OSS Project Report | Response |
   |--------------------|:---------|\n
 EOS
 
+  #
+  # preamble for the www html file
+  #
+  read -r -d '' _WWTABLE << EOS
+  <!DOCTYPE html>
+  <html>
+  <head>
+  <style>
+  table, th, td {
+  border: 1px solid #cccccc; border-collapse: collapse; padding-left: 10px; padding-right: 10px; padding-top: 7px; padding-bottom: 7px;
+}
+th {
+  background-color: #E7E9EB; text-align: left; }
+td {
+  word-wrap: break-word; }
+  #prDIV {
+    font-size: 14px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+-apple-;
+  }
+  </style>
+  </head>
+  <body>
+  <div id="prDIV">
+  <h1>${1} OSS-P4/R</h1>
+  <ul>
+  <li><a href="#vuls">Critical and High vulnerabilities</a></li>
+  <li><a href="#mals">Critical and High maliciousCodeRisk</a></li>
+  <li><a href="#engs">Critical and High engineeringRisk</a></li>
+  <li><a href="#auts">Critical and High authorsRisk</a></li>
+  <li><a href="#lics">Critical, High, Medium, and Low licenseRisk</a></li>
+  </ul>
+  <p>
+  <table>
+  <thead><tr><th>OSS Project Report</th><th>Response</th></tr></thead>
+  <tbody>
+EOS
+
   while read -r id; do
     IFS="|" read -r _col1 _col2 < <(jq -r --arg ID "${id}" '.reportWriter[]|select (.id == $ID)|[.label,.value]|join("|")' "${2}")
+    IFS=    read -r _col1desc   < <(jq -r --arg ID "${id}" '.reportWriter[]|select (.id == $ID)|.description' "${2}")
 
     #
     # handle special cases (keep this one)
     [[ $id =~ Section___ ]] && _col2="____HRULE____"
 
     _col2clean=$(sed "s^<ac:emoticon ac:name='warning'/>^(\!)^g;s^<ac:emoticon ac:name='cross'/>^(\x)^g;" <<<"${_col2}")
+    _ww__col2clean="${_col2clean}"
+    _ww__col2clean=$(sed "s^<ac:emoticon ac:name='warning'/>^${__WARNINGSVG__}^g;s^<ac:emoticon ac:name='cross'/>^${__REDSVGFLAG__}^g;" <<<"${_col2}")
 
     case "${id}" in
       "${_LOCAL_OSSP4R_OUTLOOK_ID}" | "${_LOCAL_DODCIO_CRITERIA_ID}")
         read -r _col2 < <(jq -r --arg ID "${id}" '.reportWriter[]|select (.id == $ID)|.wwwValue' "${2}")
         _col2clean=$(sed -e 's^background-color:rgba([^;]*;^^g;' <<<"${_col2}")
+        _ww__col2clean="${_col2}"
         ;;
       "${_LOCAL_SUMMARIZED_SCORES_BY_CRITERIA_ID}")
         ;;
@@ -5763,17 +5814,41 @@ EOS
         _col2clean=$(sed "s^ ac:name='tr' ^>____BREAK____<^g;s^<br/>^____BREAK____^g;s^<p/>^____BREAK____^g;" <<<"${_col2clean}")
         # shellcheck disable=2001
         _col2clean=$(sed -e 's/<[^>]*>//g;' <<<"${_col2clean}")
+        _ww__col2clean=$(sed "s^ ac:name='tr' ^>____BREAK____<^g;s^<br/>^____BREAK____^g;s^<p/>^____BREAK____^g;" <<<"${_ww__col2clean}")
         ;;
     esac
 
-    _MDTABLE+="| ${_col1} | ${_col2clean} |\n"
+    # careful to escape any embedded '|' which would be
+    # interpreted as markdown syntax
+    _MDTABLE+="| ${_col1/|/\\|} | ${_col2clean/|/\\|} |\n"
+    _WWTABLE+="<tr><td><div title=\"${_col1desc}\"><u>${_col1}</u></div></td><td>${_ww__col2clean}</td></tr>"
 
   done < <(jq -r '.reportWriter[]|.id' "${2}")
+
+  _WWTABLE+="</tbody></table>"
 
   #
   # last step - reinflate out allowable html tags and turn the newline token into real newlines
   #
   echo "${_MDTABLE}" | sed 's^\\n^\n^g' | sed 's^____BREAK____^<br>^g;s^____HRULE____^<hr>^g;' > "${1}_scir.md"
+  echo "${_WWTABLE}" | sed 's^\\n^\n^g' | sed 's^____BREAK____^<br>^g;s^____HRULE____^<hr style="border: 10px solid gray; border-radius: 5px"/> ^g;s/<td><hr/<td colspan="100"><hr/g' > "${1}_scir.www.html"
+
+  #
+  # for the www html version, include all the issues reported
+  #
+  [[ -f "${1}_vulmalrep.html" ]] && {
+    sed 's/<h2>Critical and High vulnerabilities/<h2 id="vuls">Critical and High vulnerabilities/g;
+         s/<h2>Critical and High maliciousCodeRisk/<h2 id="mals">Critical and High maliciousCodeRisk/g;
+         s/<h2>Critical and High engineeringRisk/<h2 id="engs">Critical and High engineeringRisk/g;
+         s/<h2>Critical and High authorsRisk/<h2 id="auts">Critical and High authorsRisk/g;
+         s/<h2>Critical, High, Medium, and Low licenseRisk/<h2 id="lics">Critical, High, Medium, and Low licenseRisk/g' \
+      "${1}_vulmalrep.html";
+  } >> "${1}_scir.www.html"
+
+  #
+  # close out the www html file
+  #
+  echo "</div></body></html>" >> "${1}_scir.www.html"
 
   return 0
 }
@@ -6462,7 +6537,7 @@ ${BFLAGS[subdeps]} && component_subdep_rebuild="true"
       ' "${component}_scir.json" > "${component}_scir.html" && _rc="OK"
     _say "${_rc}"
     _rc="Failed"
-    _say -n "Generating ${component}_scir.md..." && _compile_md_p4report "${component}" "${component}_scir.json" && _rc="OK"
+    _say -n "Generating ${component}_scir.md and ${component}_scir.www.html..." && _compile_other_p4reports "${component}" "${component}_scir.json" && _rc="OK"
     _say "${_rc}"
   }
 
@@ -6660,6 +6735,7 @@ _cmdline="${0} ${*}"
 # this is an acceptable test for version numbers according to shellcheck
 # shellcheck disable=2072
 [[ (( "${BASH_VERSION/[^0-9.]*/}" > 5.1 )) ]] && { 
+  # shellcheck disable=2034
   BASH_COMPAT=51
 }
 
