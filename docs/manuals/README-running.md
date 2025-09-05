@@ -262,6 +262,9 @@ total 28476
 drwxr-xr-x 1 user group   57760 mmm dd hh:mm subdeps.d
 drwxr-xr-x 1 user group      96 mmm dd hh:mm deps.d
 -rw-r--r-- 1 user group     494 mmm dd hh:mm fleetth_coalesce.csv
+-rw-r--r-- 1 user group  124862 mmm dd hh:mm sdnDB.json
+-rw-r--r-- 1 user group  947889 mmm dd hh:mm fleetth_gitcli_contrib.csv
+-rw-r--r-- 1 user group       0 mmm dd hh:mm fleetth_gitcli_unk_contrib.csv
 -rw-r--r-- 1 user group  974697 mmm dd hh:mm fleetth_allIssues.json
 -rw-r--r-- 1 user group       4 mmm dd hh:mm fleet_ghapi_sbom.json
 -rw-r--r-- 1 user group  448453 mmm dd hh:mm fleet_gh.html
@@ -282,6 +285,9 @@ drwxr-xr-x 1 user group    2080 mmm dd hh:mm oldjobs
 #### Explaination: The files
 ##### Cache files
 
+- ```sdnDB.json``` ingested OFAC SDN list using the email address as the primary key
+- ```_gitcli_contrib.csv``` contributor emails to all projects scanned by hipcheck
+- ```_gitcli_unk_contrib.csv``` contributors without emails to all projects scanned by hipcheck
 - ```_gh.html``` is the html page of the repo used to find badges and other information
 - ```_ghapi.json``` is the GitHub API summary data for the GitHub Project (e.g. ```:repo``` in ```:owner/:repo```)
 - ```_ghapi_contrib.json``` is the named contributors to the GitHub Project (limited to 500 entries)
@@ -345,6 +351,10 @@ is mangled to
 These folders contain the level 2 and beyond package dependencies and end in ```_deps.json```
 
 ##### Interfaces and files (by files)
+* ```sdnDB.json```
+  - command line tool: ```curl```
+  - URI: ```sanctionslistservice.ofac.treas.gov/changes/latest``` and ```sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.CSV```
+  - Purpose: to obtain latest SDN list verion and scrape ```csv``` to obtain emails of sanctioned entities and individuals.
 * ```_gh.html```
   - command line tool: ```curl```
   - URI: ```github.com/:owner/:repo```
@@ -499,8 +509,10 @@ curl 7.68.0 (must be higher than 7.67.0 to support 429 retry code)
 
 ```
 gcr.io/openssf/scorecard:latest
-mitre/hipcheck:latest (version 3.3.1) or hipcheck:2022-07-06-delivery (version 3.1.0)
+mitre/hipcheck:3.4.0 or hipcheck:3.3.1*
 ```
+
+*later versions are supported but are not recommended due to resource constraints
 
 ### Environment and Personal Access Tokens
 

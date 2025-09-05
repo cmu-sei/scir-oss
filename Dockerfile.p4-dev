@@ -22,7 +22,7 @@ RUN set -eux \
 #
 RUN set -eux \
     && apt-get update \
-    && apt-get install --no-install-recommends -y ca-certificates procps bc jq unzip file
+    && apt-get install --no-install-recommends -y ca-certificates procps bc jq unzip file csvtool
 
 #
 # only needed for development and debug inside container

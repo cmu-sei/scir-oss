@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250818 (branch: publicRelease)"
+readonly _version="pubRel 250905 (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -43,6 +43,7 @@ readonly _version="pubRel 250818 (branch: publicRelease)"
 _OSSSCIRsettings=${_OSSSCIRsettings:-"$(dirname "$(realpath "${0}")")/settings"}
 _MITRHCconfig="${_OSSSCIRsettings}/hipcheck/config"
 _MITRHCscripts="${_OSSSCIRsettings}/hipcheck/scripts"
+_MITRHCcache=""
 _OSSSCIRlicenseDB="${_OSSSCIRsettings}/mychecks/licenseDB.json"
 [[ -f "${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv" ]] && _OSSSCIRrepoResolveDB="${_OSSSCIRsettings}/scir-oss/_dig4repo-resolv.csv"
 _CAStoreVolume=
@@ -93,7 +94,7 @@ trap 'err_report $LINENO' ERR
 #
 _cleanup_and_exit()
 {
-  [[ -s "${__logfil}.basherr" ]] && _warn "logs/${__logfil}.basherr: inspect for bash errors."
+  [[ -s "${__logfil}.basherr" ]] && _warn "${component}/logs/${__logfil}.basherr: inspect for bash errors."
   _say "oss-p4/R done."
   [[   "${__logfil}" == "${__NULLLOG__}" ]] && rm -f "${__logfil}"
   [[ ! "${__logfil}" == "${__NULLLOG__}" ]] && [[ -d logs/ ]] && [[ -f "${__logfil}" ]] && mv "${__logfil}" logs/ && mv -f "${__logfil}.basherr" logs/
@@ -110,6 +111,7 @@ _cleanup_and_exit()
 
 _say()
 {
+#  [[ -s "${__logfil}.basherr" ]] && _debug "There are errors in ${__logfil}.basherr"
   echo "${1}" "${2}" | ${__logger} >&"${_fdverbose}" && return
 }
 
@@ -229,7 +231,7 @@ declare -A PFourProjectChecks=( \
   [SCscore]="Code-Review CI-Tests CII-Best-Practices Contributors Fuzzing Maintained SAST" \
   [HCscore]="Activity Identity Affiliation Fuzz Review" \
   [PHYscore]="author" \
-  [MYscore]="ProjectForked ProblemReporting DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
+  [MYscore]="AnonymousAuthor ProjectForked ProblemReporting DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
   )
 
 declare -A PFourProjectScores=( \
@@ -304,7 +306,7 @@ declare -A PFourPolicyChecks=( \
   [SCscore]="License Security-Policy" \
   [HCscore]="${__NOCHECK__}" \
   [PHYscore]="license" \
-  [MYscore]="ProjectRestrictiveLicense DepProjectsRestrictiveLicense TertiaryProjectsRestrictiveLicense" \
+  [MYscore]="SanctionedAuthor ProjectRestrictiveLicense DepProjectsRestrictiveLicense TertiaryProjectsRestrictiveLicense" \
   )
 
 declare -A PFourPolicyScores=( \
@@ -432,7 +434,7 @@ declare -A CIOmalActorsChecks=( \
   [SCscore]="${__NOCHECK__}" \
   [HCscore]="Affiliation" \
   [PHYscore]="author" \
-  [MYscore]="${__NOCHECK__}" \
+  [MYscore]="AnonymousAuthor SanctionedAuthor" \
   )
 
 declare -A CIOmalActorsScores=( \
@@ -631,6 +633,8 @@ declare -A MYcheckScores=( \
   [ProjectRestrictiveLicense]="${__NAN__}" \
   [DepProjectsRestrictiveLicense]="${__NAN__}" \
   [TertiaryProjectsRestrictiveLicense]="${__NAN__}" \
+  [AnonymousAuthor]="0" \
+  [SanctionedAuthor]="0" \
   )
 
 declare -A MYcheckLabels=( \
@@ -645,6 +649,8 @@ declare -A MYcheckLabels=( \
   [ProjectRestrictiveLicense]="Restrictive License(s)" \
   [DepProjectsRestrictiveLicense]="Dependent Restrictive License(s)" \
   [TertiaryProjectsRestrictiveLicense]="Other Restrictive License(s)" \
+  [AnonymousAuthor]="Anonymous Author" \
+  [SanctionedAuthor]="Sanctioned Author" \
   )
 
 # shell checker does not see this is passed by ref
@@ -661,6 +667,8 @@ declare -A MYcheckWeights=( \
   [ProjectRestrictiveLicense]="${SCcritical}" \
   [DepProjectsRestrictiveLicense]="${SChigh}" \
   [TertiaryProjectsRestrictiveLicense]="${SClow}" \
+  [AnonymousAuthor]="${SClow}" \
+  [SanctionedAuthor]="${SCcritical}" \
   )
 
 declare -A MYcheckThresholds=( \
@@ -675,11 +683,17 @@ declare -A MYcheckThresholds=( \
   [ProjectRestrictiveLicense]="0" \
   [DepProjectsRestrictiveLicense]="0" \
   [TertiaryProjectsRestrictiveLicense]="0" \
+  [AnonymousAuthor]="0" \
+  [SanctionedAuthor]="0" \
   )
 
 declare -A foundLicenses
 
 declare -A licenseChecks
+
+declare -A ANONYhits
+
+declare -A SDNhits
 
 #
 # lifted from https://stackoverflow.com/questions/4023830/how-to-compare-two-strings-in-dot-separated-version-format-in-bash
@@ -1005,18 +1019,19 @@ _compute_p4_scores()
 
   #
   # grab scores from scorecard checks
-  if ${__ghSKIP}; then
-    _SCcompositeScore="not run as project is not on GitHub unknown"
-    PFourPolicyScores[SCscore]="unknown"
-    PFourProjectScores[SCscore]="unknown"
-    PFourProtectionScores[SCscore]="unknown"
-    PFourProductScores[SCscore]="unknown"
-    CIOlongTermScores[SCscore]="unknown"
-    CIOdependencyScores[SCscore]="unknown"
-    CIOsecurityScores[SCscore]="unknown"
-    CIOintegrityScores[SCscore]="unknown"
-    CIOmalActorsScores[SCscore]="unknown"
-    CIOsuitabilityScores[SCscore]="unknown"
+  if ${__ghSKIP} || [[ ! -s "${1}" ]] || [[ -f "${1}".err ]]; then
+    _SCcompositeScore="not run as project skipped or scorecard failed to scan project"
+    # TODO make this a loop so as to pickup when new checks are added
+    PFourPolicyScores[SCscore]="${__NAN__}"
+    PFourProjectScores[SCscore]="${__NAN__}"
+    PFourProtectionScores[SCscore]="${__NAN__}"
+    PFourProductScores[SCscore]="${__NAN__}"
+    CIOlongTermScores[SCscore]="${__NAN__}"
+    CIOdependencyScores[SCscore]="${__NAN__}"
+    CIOsecurityScores[SCscore]="${__NAN__}"
+    CIOintegrityScores[SCscore]="${__NAN__}"
+    CIOmalActorsScores[SCscore]="${__NAN__}"
+    CIOsuitabilityScores[SCscore]="${__NAN__}"
   else #{
     while IFS="=" read -r check score reason
     do
@@ -1084,22 +1099,22 @@ _compute_p4_scores()
   grep -s -q -E '(policy_expr)' "${2}" && { __hcJQ='jq_newHipcheckScores' && __hcVersion=", "; }
 
   _say -n "HC${__hcVersion}"
-
   #
   # grab scores from Hipcheck checks
-  if ${__ghSKIP}; then
-    _HCscore="not run as project is not on GitHub unknown"
-    _HCrationale="unknown"
-    PFourPolicyScores[HCscore]="unknown"
-    PFourProjectScores[HCscore]="unknown"
-    PFourProtectionScores[HCscore]="unknown"
-    PFourProductScores[HCscore]="unknown"
-    CIOlongTermScores[HCscore]="unknown"
-    CIOdependencyScores[HCscore]="unknown"
-    CIOsecurityScores[HCscore]="unknown"
-    CIOintegrityScores[HCscore]="unknown"
-    CIOmalActorsScores[HCscore]="unknown"
-    CIOsuitabilityScores[HCscore]="unknown"
+  if ${__ghSKIP} || [[ ! -s "${2}" ]] || [[ -f "${2}".err ]]; then
+    _HCscore="not run as project skipped or hipcheck failed to scan project"
+    _HCrationale="${_HCscore}"
+    # TODO make this a loop so as to pickup when new checks are added
+    PFourPolicyScores[HCscore]="${__NAN__}"
+    PFourProjectScores[HCscore]="${__NAN__}"
+    PFourProtectionScores[HCscore]="${__NAN__}"
+    PFourProductScores[HCscore]="${__NAN__}"
+    CIOlongTermScores[HCscore]="${__NAN__}"
+    CIOdependencyScores[HCscore]="${__NAN__}"
+    CIOsecurityScores[HCscore]="${__NAN__}"
+    CIOintegrityScores[HCscore]="${__NAN__}"
+    CIOmalActorsScores[HCscore]="${__NAN__}"
+    CIOsuitabilityScores[HCscore]="${__NAN__}"
   else #{
     while IFS="=" read -r check score threshold reason
     do
@@ -1255,16 +1270,17 @@ _compute_p4_scores()
   #
   # grab scores from MYchecks checks
   if ${__ghSKIP}; then
-    PFourPolicyScores[MYscore]="unknown"
-    PFourProjectScores[MYscore]="unknown"
-    PFourProtectionScores[MYscore]="unknown"
-    PFourProductScores[MYscore]="unknown"
-    CIOlongTermScores[MYscore]="unknown"
-    CIOdependencyScores[MYscore]="unknown"
-    CIOsecurityScores[MYscore]="unknown"
-    CIOintegrityScores[MYscore]="unknown"
-    CIOmalActorsScores[MYscore]="unknown"
-    CIOsuitabilityScores[MYscore]="unknown"
+    # TODO make this a loop so as to pickup when new checks are added
+    PFourPolicyScores[MYscore]="${__NAN__}"
+    PFourProjectScores[MYscore]="${__NAN__}"
+    PFourProtectionScores[MYscore]="${__NAN__}"
+    PFourProductScores[MYscore]="${__NAN__}"
+    CIOlongTermScores[MYscore]="${__NAN__}"
+    CIOdependencyScores[MYscore]="${__NAN__}"
+    CIOsecurityScores[MYscore]="${__NAN__}"
+    CIOintegrityScores[MYscore]="${__NAN__}"
+    CIOmalActorsScores[MYscore]="${__NAN__}"
+    CIOsuitabilityScores[MYscore]="${__NAN__}"
   else
     # shellcheck disable=2086
     CIOlongTermScores[MYscore]=$(_compute_wScore \
@@ -1725,7 +1741,7 @@ $(_wwwhtml_wrapper_start)
              HCscore)
                _tt="gt";
                _fp="auto";
-               _bhr="<a href='https://github.com/mitre/hipcheck/blob/main/docs/book/src/using/analyses.md'>";
+               _bhr="<a href='https://github.com/mitre/hipcheck/blob/hipcheck-v3.3.1/docs/book/src/using/analyses.md'>";
                _ehr="</a>";
                _mg="(score &le; threshold) ${_HCrationale}"; ;;
              PHYscore)
@@ -1744,12 +1760,23 @@ $(_wwwhtml_wrapper_start)
              unset -n _tarray; declare -n _tarray; _tarray="${_tbl/score/checkThresholds}"
              unset -n _larray; declare -n _larray; _larray="${_tbl/score/checkLabels}"
              local _colname="${_label/:*}"
+             local _wflag=""
              _wwwhtml_tabledata_start "${_hdr}"
              for _check in ${_aarray[${_card/*:}]}
              do
                [[ "${__NOCHECK__}" == "${_check}" ]] && break
                [[ "${__CHECKNOTIMPL__}" == "${_sarray[${_check}]}" ]] || [[ -z "${_sarray[${_check}]}" ]] && continue
-               echo -n "$(_fotp "${_sarray["${_check}"]}" "${_tarray["${_check}"]}" "${_tt}")${_larray[${_check}]}($(_fppp "${_fp}" "${_sarray[${_check}]}")/${_tarray[${_check}]})<br/>"
+               case "${_check}" in
+                 AnonymousAuthor)
+                   _wflag="--warnFlag"
+                   ;;
+                 *)
+                   _wflag=""
+                   ;;
+               esac
+               # need _wflag to not be an arg if unset
+               # shellcheck disable=2086
+               echo -n "$(_fotp ${_wflag} "${_sarray["${_check}"]}" "${_tarray["${_check}"]}" "${_tt}")${_larray[${_check}]}($(_fppp "${_fp}" "${_sarray[${_check}]}")/${_tarray[${_check}]})<br/>"
              done
            fi
            _wwwhtml_tabledata_end
@@ -1792,7 +1819,7 @@ _summary_scores()
   done
   scmsg="${scmsg/%, /})"
 
-  hcmsg="<a href='https://github.com/mitre/hipcheck/blob/main/docs/book/src/using/analyses.md'>MITRE Hipcheck</a>: (score &le; threshold) ${_HCrationale}<br/>(composed of "
+  hcmsg="<a href='https://github.com/mitre/hipcheck/blob/hipcheck-v3.3.1/docs/book/src/using/analyses.md'>MITRE Hipcheck</a>: (score &le; threshold) ${_HCrationale}<br/>(composed of "
   for check in "${!HCcheckScores[@]}"
   do
     # need to wordsplit after "auto" on the HCcheckScores
@@ -2254,7 +2281,7 @@ _dep_up2date()
 
 _max_project_dep()
 {
-  { [[ -f "${1}" ]] && echo -n "$(cut -d, -f1 "${1}"|sort -n|tail -1)"; } || echo -n "unknown"
+  { [[ -f "${1}" ]] && echo -n "$(cut -d, -f1 "${1}"|sort -n|tail -1)"; } || echo -n "${__NOASSERTION__}"
   return
 }
 
@@ -2742,7 +2769,7 @@ _ph_sanitize_cmp()
 _gh_sanitize_url ()
 {
   # quick out
-  { [[ -z "${1}" ]] || [[ "${1,,}" == "unknown" ]] || [[ "${1,,}" == "null" ]]; } && echo "unknown" && return;
+  { [[ -z "${1}" ]] || [[ "${1,,}" == "${__NOASSERTION__}" ]] || [[ "${1,,}" == "null" ]]; } && echo "${__NOASSERTION__}" && return;
 
   local _uriS;
   # wack beginning upto github.com
@@ -2794,7 +2821,7 @@ gem_scraper()
   [[ -z "${_ret}" ]] &&
     _ret="$(curl --silent --location https://rubygems.org/api/v1/gems/"${_srch/%:*}".json -o - | jq -r 'if (.source_code_uri) then (.source_code_uri) else (.homepage_uri) end' 2>/dev/null)";
 
-  { [[ "${_ret,,}" = "null" ]] || [ -z "${_ret}" ]; } && _ret="unknown";
+  { [[ "${_ret,,}" = "null" ]] || [ -z "${_ret}" ]; } && _ret="${__NOASSERTION__}";
   _gh_sanitize_url "${_ret}";
   return
 }
@@ -2952,7 +2979,7 @@ maven_scraper()
   #eval "$(sed -E 's/^([^:\/?\n]+)[:\/]([^:@?\n]+)[:@]*v*(.*)/_dom=\1;_art=\2;_ver=\3;/mg' <<<"${1}")"
   eval "$(sed -E 's/^([^:\/?\n]+)[:\/]([^:?\n]+)[:@]*v*(.*)/_dom=\1;_art=\2;_ver=\3;/mg' <<<"${1}")"
 
-  { [[ -z "${_ver}" ]] && [[ -z "${_art}" ]] && [[ -z "${_dom}" ]] && _say "${FUNCNAME[0]} for '${1}': malformed" && echo "unknown" && return; } || _say "version: '${_ver}' article: '${_art}' domain: '${_dom}'"
+  { [[ -z "${_ver}" ]] && [[ -z "${_art}" ]] && [[ -z "${_dom}" ]] && _say "${FUNCNAME[0]} for '${1}': malformed" && echo "${__NOASSERTION__}" && return; } || _say "version: '${_ver}' article: '${_art}' domain: '${_dom}'"
 
    #
    # try for the .pom file first
@@ -4099,12 +4126,28 @@ __exec_hcheck()
     shift 1
   done
 
+  #
+  # if running hipcheck natively these two paths will be the same
+  # if running hipcheck as a container, these two paths will differ
+  #   as such, to do SDN, the .cache/hipcheck folder needs to persist
+  #   this, here this ensures the persistent folder exists before the
+  #   docker volume is mapped into the container space and is writable
+  #   by the container process
+  #
+  # by doing this the folder ${HOME}/.cache/hipcheck will always have
+  # the most recent clone (e.g., 'clones/github') for the SDN search
+  #
+  [[ ! "${HOME}/.cache/hipcheck" == "${_MITRHCcache}" ]] && {
+    mkdir -p "${HOME}/.cache/hipcheck"
+    chmod 777 "${HOME}/.cache/hipcheck"
+  }
   if "${_useDocker}"; then
     # _CAStoreDocker, __MITRHCquiet, _MITRHCrepoCmd, _MITRHCjson need to word split (SC2086)
     # shellcheck disable=2086
     docker run --rm ${_CAStoreDocker} \
       -v "${_MITRHCconfig}:/app/config" \
       -v "${_MITRHCscripts}:/app/scripts" \
+      -v "${HOME}/.cache/hipcheck:${_MITRHCcache}" \
       -e "HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}" "${_MITRHC}" \
       ${_altexec} \
       ${_MITRHCrepoCmd} "${1}" && _rc=0
@@ -4155,16 +4198,24 @@ _run_hipcheck()
 
   [ ! -s "${_joutput}" ] && {
     _say "running hipcheck on ${_prjurl} to ${_joutput}"
-    waitRateLimit "${_lowerLimit}" &&
-    __exec_hcheck --alt1 "${_prjurl}" > "${_joutput}" 2> "${_toutput}" &&
+    waitRateLimit "${_lowerLimit}" && {
+    __exec_hcheck --alt1 "${_prjurl}" > "${_joutput}" 2> "${_toutput}" ||
       {
         grep -q -E '"recommendation":' "${_joutput}" ||
         {
           _warn "hipcheck ${_toutput} failed, see file for hints"
-          mv "${_joutput}" "${_joutput}".err # TODO: not sure i need this .err
+          mv "${_joutput}" "${_joutput}".err
           return
         }
-      }
+      };
+    }
+
+    #
+    # got here so hc.json is likely good
+    # don't need the .err file at this point
+    #
+    [[ -s "${_joutput}" ]]
+      rm -f "${_joutput}".err
     #
     # in later versions of hipcheck there are errors reported by
     # plugins which are really informational given that a message
@@ -4293,6 +4344,15 @@ _run_mychecks()
         _count_licenses
         MYcheckScores["${check}"]="${__CHECKNOTIMPL__}"
         #MYcheckScores["${check}"]="$(_find_restrictive_licenses --tertiary)"
+        ;;
+      AnonymousAuthor)
+        MYcheckScores["${check}"]="${#ANONYhits[@]}"
+        ;;
+      SanctionedAuthor)
+        # computed in detect_sdn
+        # can't do this here (yet)
+        #detect_sdn "${__sdnDB}" "${__ghrcommitjson}"
+        MYcheckScores["${check}"]="${#SDNhits[@]}"
         ;;
       *)
         ;;
@@ -4751,7 +4811,8 @@ coalesce_scorecards()
       _SCinput="${_localdepdir}/$(basename "${_localdepdir}").sc.json"
       _HCinput="${_localdepdir}/$(basename "${_localdepdir}").hc.json"
 
-      [ ! -s "${_SCinput}" ] || [ ! -s "${_HCinput}" ] && _missingJson=$((_missingJson+1)) && continue
+      { [ ! -s "${_SCinput}" ] || [ ! -s "${_HCinput}" ] || \
+        ! jq -r '.' "${_SCinput}" || ! jq -r '.' "${_HCinput}"; } 1>/dev/null 2>&1 && _missingJson=$((_missingJson+1)) && continue
 
       # CSV header (do once)
       # 3 parts to coalesce
@@ -4797,9 +4858,198 @@ coalesce_scorecards()
     | sort | uniq) #}
 
   _say ""
-  [ "${_missingJson}" -gt "0" ] && _warn "coalesce_scorecards: counted ${_missingJson} missing project scorecard(s)"
+  [ "${_missingJson}" -gt "0" ] && _warn "coalesce_scorecards: counted ${_missingJson} missing or corrupt project scorecard(s)"
   [ ! -s "${3}" ] && _warn "coalesce_scorecards: no scores from scorecard or hipcheck found." && cp /dev/null "${3}"
   return
+}
+
+build_sdn()
+{
+  local _sdnWebsitesUpdated
+  local _metainfo
+  local _lastUpdate
+  local _csvinfo
+
+  local _sdnType
+  local _programList
+  local _lastName
+  local _uid
+  local _lookups
+  local _urlSrc
+
+  # get date of latest SDN ingest
+  _sdnWebsitesUpdated="$(curl -L --silent -X 'GET'   'https://sanctionslistservice.ofac.treas.gov/changes/latest'   -H 'accept: */*' -o - | grep '<datePublished>' | sed 's^<[/]*datePublished>^^g;s/[[:space:]]*//g;s/T[[:digit:]:-]*//g')"
+  [[ -z "${_sdnWebsitesUpdated}" ]] && _warn "cannot get last SDN update date" && return 1
+  _sdnWebsitesUpdated="$(date -d "${_sdnWebsitesUpdated}" +%s)"
+
+  _metainfo="$(dirname "${1}")/sdn.meta.txt"
+  [[ ! -f "${_metainfo}" ]] && echo "${_sdnWebsitesUpdated}" > "${_metainfo}"
+
+  _lastUpdate=$(<"${_metainfo}")
+
+  ${protectNoUpdate} && { [[ ! -f "${1}" ]] || [[ "${_sdnWebsitesUpdated}" -gt "${_lastUpdate}" ]]; } &&
+    _warn "OFAC Update available but updates are disabled (see -p)" && return 0
+
+  ! ${protectNoUpdate} && { [[ ! -f "${1}" ]] || [[ "${_sdnWebsitesUpdated}" -gt "${_lastUpdate}" ]]; } && {
+    _csvinfo="$(mktemp -u -p . -t csvF.XXXXXXXXXX)" && cp /dev/null "${_csvinfo}"
+    #
+    # TODO: confirm File signature (need to scrape off the download html page)
+    #
+    _urlSrc="https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.CSV"
+    curl -L --silent -X 'GET' "${_urlSrc}" -H 'accept: */*' -o "${_csvinfo}"
+    echo "${_sdnWebsitesUpdated}" > "${_metainfo}"
+    cat <<-_SDNHDR > "${1}"
+{
+  "version": "IOC 1.0",
+  "urlSrc": "${_urlSrc}",
+  "metaInfo": "${_metainfo}",
+  "lastUpdated": "${_sdnWebsitesUpdated}",
+  "emails": [
+_SDNHDR
+    while IFS= read -r _email
+    do
+    #
+    # there can be multiple entries in the csv that
+    # could have a _email hit, here we use the _email
+    # as the primary key, here relevent information
+    # is consolidated in those cases
+    #
+    _uid="$(grep -i "${_email}" "${_csvinfo}"         | csvtool col 1 -| tr '\n' '|'| sed 's/|$//g;s/|/ \(and\) /g;s/"//g')"
+    _lastName="$(grep -i "${_email}" "${_csvinfo}"    | csvtool col 2 -| tr '\n' '|'| sed 's/|$//g;s/|/ \(and\) /g;s/"//g')"
+    _sdnType="$(grep -i "${_email}" "${_csvinfo}"     | csvtool col 3 -| sed 's/-0-/entity/g'| tr '\n' '|'| sed 's/|$//g;s/|/ \(and\) /g')"
+    _programList="$(grep -i "${_email}" "${_csvinfo}" | csvtool col 4 -| tr '\n' '|'| sed 's/|$//g;s/|/ \(and\) /g;s/"//g')"
+    _lookups="$(grep -i "${_email}" "${_csvinfo}"     | csvtool -u '|' col 1-2 - | { while IFS='|' read -r _xuid _xlastName; do echo "{"; echo \"uid\": \""${_xuid}"\",; echo \"lastName\": \""${_xlastName}"\"; echo "}"; done; } | jq -r --slurp 'map("["+.uid+"](https://sanctionssearch.ofac.treas.gov/Details.aspx?id="+.uid+") " + .lastName)' )"
+    cat <<-_SDNENT >> "${1}"
+    {
+      "email_addr": "${_email}",
+      "source": "SDN",
+      "confidence": "critical",
+      "reason": "",
+      "uid": "${_uid}",
+      "lastName": "${_lastName}",
+      "sdnType": "${_sdnType}",
+      "programList": "${_programList}",
+      "lookups": ${_lookups}
+    },
+_SDNENT
+    done < <(grep -o -E "[a-zA-Z0-9._%±]+@[a-zA-Z0-9.-]+.[a-zA-Z]{2,}" "${_csvinfo}" | sort | uniq)
+    cat <<-_SDNFTR >> "${1}"
+    {
+      "email_addr": "zzzdummyxxx",
+      "source": "SDN",
+      "confidence": "low",
+      "reason": "",
+      "uid": "0",
+      "lastName": "",
+      "sdnType": "entity",
+      "programList": "none",
+      "lookups": [ ]
+    }
+  ]
+}
+_SDNFTR
+  }
+
+  ! jq -r '.' "${1}" >/dev/null && _warn "jq failed on ${1}" && return 1
+
+  rm -f "${_csvinfo}"
+  _sdnlist_ver="$(date -d@"$(<"${_metainfo}")" +%Y-%m-%d)"
+
+  return 0
+}
+
+detect_sdn()
+{
+  local _cwd
+  local _hcache
+  local _committer
+  local _repo
+
+  _cwd="$(realpath "${PWD}")"
+  _hcache="${_MITRHCcache}"
+  ${_useDocker} && _hcache="${HOME}/.cache/hipcheck"
+  _say -n "collecting git contributors..."
+  cp /dev/null "${_cwd}/${__gitcontribcsv}"
+  cp /dev/null "${__gitcontribcsv/contrib/unk_contrib}"
+  #
+  # for every github/repo site for which hipcheck was
+  # run, there should be a git clone where committer
+  # email addresses can be harvested, do that here
+  #
+  while IFS= read -r _x
+  do
+    _sdnDir="$(basename "$(dirname "${_x}")"|sed 's/___/\//g')";
+    { pushd "${_hcache}/clones/github/${_sdnDir}" >/dev/null 2>&1; } || { _warn "cannot identify committers to ${_sdnDir}" && continue; }
+
+    #
+    # subtle note: without "HEAD", shortlog will test if
+    # stdin isatty(0) and will fail if container is NOT
+    # running with interactive flag (-it), so need to
+    # specify HEAD to keep this from failing.
+    { while IFS= read -r _committer
+    do
+      echo "${_sdnDir},${_committer//[<>]/}"
+    done < <(git shortlog -sne HEAD | grep -o -E '<[() [:alnum:]].*@[[:alnum:]].*>'); } >> "${_cwd}/${__gitcontribcsv}"
+
+    { while IFS= read -r _committer
+    do
+      echo "${_sdnDir},${_committer//[<>]/}"
+    done < <(git shortlog -sne HEAD | grep -v -o -E '<[() [:alnum:]].*@[[:alnum:]].*>'); } >> "${_cwd}/${__gitcontribcsv/contrib/unk_contrib}"
+
+    popd > /dev/null || cd "${_cwd}" || break
+  done < <(find . ! -size 0 -type f -iname \*hc.json);
+
+  _say "OK"
+
+  [[ ! -f "${1}" ]] && _warn "no OFAC SDN cached, cannot detect SDNs" && return 0
+
+  _say -n "detecting SDN from collected contributors..."
+  while IFS=, read -r _repo _committer
+  do
+    #
+    # if there is a quicklook hit then
+    # incur the overhead of pulling the record
+    #
+    grep -q -i "${_committer}" "${1}" && \
+      SDNhits["${_repo},${_committer}"]="$(jq -r --arg RP "${_repo}" --arg EM "${_committer}" \
+        '.emails[] |
+           select((.email_addr|ascii_upcase) == ($EM|ascii_upcase)) |
+           . += { "committer":$EM, "repo":$RP }' "${1}")"
+  done < "${__gitcontribcsv}"
+
+  while IFS=, read -r _repo _committer
+  do
+    ANONYhits["${_repo},${_committer}"]="{ \"committer\":\"${_committer}\", \"repo\": \"${_repo}\"}"
+    jq -r --arg EM "${_committer}" \
+      '.emails[]|select (.email_addr|IN($EM))|[.source,.confidence]|@csv' < "${1}"
+  done < "${__gitcontribcsv/contrib/unk_contrib}"
+
+  _say "OK"
+
+  return 0
+}
+
+_anonyactors()
+{
+  local _msg
+
+  _msg=", no anonymous author(s) detected."
+  [[ ${MYcheckScores[AnonymousAuthor]} -gt ${MYcheckThresholds[AnonymousAuthor]} ]] && _msg=", detected anonymous author(s) $( jq -r '.|[.committer, .repo]|join(",")' <<<"${ANONYhits[@]}"|tr '\n' ';'|sed 's/;/; /g'|sed 's/; $//g' )"
+  echo "$(_fotp --warnFlag "${MYcheckScores[AnonymousAuthor]}" "${MYcheckThresholds[AnonymousAuthor]}" "gt")${MYcheckScores[AnonymousAuthor]}/${MYcheckThresholds[AnonymousAuthor]}${_msg}"
+
+  return 0
+}
+
+_sdnactors()
+{
+  local _msg
+#  echo "${SDNhits[@]}" | tr -d '\n' | sed 's/"/|/g'
+
+  _msg=", no sanctioned author(s) detected."
+  [[ ${MYcheckScores[SanctionedAuthor]} -gt ${MYcheckThresholds[SanctionedAuthor]} ]] && _msg=", detected sanctioned author(s) $( jq -r '.|[.committer, .repo]|join(",")' <<<"${SDNhits[@]}"|tr '\n' ';'|sed 's/;/; /g'|sed 's/; $//g' )"
+  echo "$(_fotp "${MYcheckScores[SanctionedAuthor]}" "${MYcheckThresholds[SanctionedAuthor]}" "gt")${MYcheckScores[SanctionedAuthor]}/${MYcheckThresholds[SanctionedAuthor]}${_msg}"
+
+  return 0
 }
 
 _phy_prj_cache()
@@ -4996,10 +5246,19 @@ build_caches()
       _fatal "gh-api SBOM pre-cache failed ${?}.";
     };
 
-  { ! jq -r '.' "${__ghrsbomjson}" > /dev/null || [ ! -f "${__ghrsbomjson}" ] || [ ! -s "${__ghrsbomjson}" ]; } &&
-    _fatal "${__ghrsbomjson} is corrupt, missing or empty"
+  #
+  # these conditions are only fatal if the gh sbom
+  # is the source for all dependencies (-P github:sbom)
+  # otherwise a user supplied SBOM is necessary
+  #
+  if [[ "${dependency_src}" == "${__ghrsbomjson}" ]]; then
+    { ! jq -r '.' "${__ghrsbomjson}" > /dev/null || [ ! -f "${__ghrsbomjson}" ] || [ ! -s "${__ghrsbomjson}" ]; } &&
+      _fatal "${__ghrsbomjson} is corrupt, missing or empty"
 
-  if grep -q Bad\ credentials "${__ghrsbomjson}"; then _fatal "${__ghrsbomjson} bad GITHUB_AUTH_TOKEN credentials"; fi
+    grep -q Bad\ credentials "${__ghrsbomjson}" && _fatal "${__ghrsbomjson} bad GITHUB_AUTH_TOKEN credentials"
+
+    grep -q -E '("status": "404")' "${__ghrsbomjson}" && _fatal "github dependency graph disabled for ${component}, please supply an SBOM using <jsonfile>:sbom (see -P)"
+  fi
 
   _say "OK"
 
@@ -5017,6 +5276,21 @@ build_caches()
       echo "${dependency_type},${dependency_src},$(md5sum "${dependency_src}" | sed 's/  /,/')" > "${__phy_prjs}"
     fi
   }
+
+  #########
+  # pre-cache SDN
+  if ${BFLAGS[caches]} || ${force_rebuild} ; then
+    _say -n "forced clearing OFAC SDN caches..."
+    rm -f "${__sdnDB}"
+  fi
+
+  _rc=1
+  #
+  # building the sdn cache ensures it is up to date no
+  # need to check for aging against _cache_days
+  #
+  _say -n "checking OFAC SDN caches..." && build_sdn "${__sdnDB}" && _rc=0
+  { [[ ${_rc} -eq 1 ]] && _fatal "${__sdnDB} is corrupt, missing or empty"; } || { _say "OK"; }
 
   #########
   # pre-cache phylum projects
@@ -5089,11 +5363,6 @@ grype_issues()
   local __gxpipeLine
   local __rootSBOM
 
-  __gyxform=$(mktemp -u -p . -t gyxF.XXXXXXXXXX) && cp /dev/null "${__gyxform}"
-
-  __gxpipeLine="$(mktemp -u -p . -t gyxP.XXXXXXXXXX)"
-  _mk_grype_xform_pipeline "${__gxpipeLine}"
-
   #
   # operates like scorecards, runs off levels in prjs.csv
   #
@@ -5103,6 +5372,11 @@ grype_issues()
   # ^0, is special - always do it it's SBOM is known
   IFS="," read -r _c __rootSBOM _m _o < "${__phy_prjs}"; unset _m _o
   ! { [[ "${_c}" == "SBOM" ]] && [[ -s "${__rootSBOM}" ]]; } && _debug "no root SBOM for grype issues" && return
+
+  __gyxform=$(mktemp -u -p . -t gyxF.XXXXXXXXXX) && cp /dev/null "${__gyxform}"
+
+  __gxpipeLine="$(mktemp -u -p . -t gyxP.XXXXXXXXXX)"
+  _mk_grype_xform_pipeline "${__gxpipeLine}"
 
   _say -n "running ${_GRYPEC} scan for ${1} from ${2} to level ${issueDepth}..."
 
@@ -5147,7 +5421,7 @@ consolidate_issues()
   cp /dev/null "${3}"
 
   # do only if grype is installed
-  [[ ! ${_grype_ver} == "unknown" ]] && {
+  [[ ! ${_grype_ver} == "${__NOASSERTION__}" ]] && {
     { ${BFLAGS[issues]} || ${force_rebuild} ; } && cp /dev/null "${2}_sbom_grype.json"
 
     grype_issues "${2}" "${4}"
@@ -5164,7 +5438,7 @@ consolidate_issues()
     __phdepFiles=$(mktemp -u -p . -t phdep.XXXXXXXXXX)
       find . \( -name \*_dep_prds.json -o -name \*deps.json \) -print0 > "${__phdepFiles}"; }
 
-  [[ ! ${_grype_ver} == "unknown" ]] && { _say -n " ..."
+  [[ ! ${_grype_ver} == "${__NOASSERTION__}" ]] && { _say -n " ..."
     __grypeFiles=$(mktemp -u -p . -t grype.XXXXXXXXXX) &&
       find . \( -name \*_sbom_grype.json \) -print0 > "${__grypeFiles}"
   }
@@ -5180,6 +5454,25 @@ consolidate_issues()
     # before the slurp below ensures there is an .issues[]
     # key in the event the key is not present in the json
     #
+    [[ "${__risk__}" == "authorsRisk" ]] && _say "collecting SDN issues..." && _liseq=0 && \
+      for _x in "${SDNhits[@]}";
+      do
+        ((_liseq++));
+        cat <<-_MYSDNEOF
+  {
+    "tag": "$(jq -r '.confidence' <<<"${_x}"|sed 's/critical/C/g;s/high/H/g')A$(printf %.4d "${_liseq}")",
+    "id": "$(jq -r '.repo' <<<"${_x}")",
+    "title": "$(jq -r '.lastName' <<<"${_x}") - $(jq -r '.committer' <<<"${_x}") is a contributor found on the Specially Designated Nationals List",
+    "description": "### Summary\nPackage repo $(jq -r '.repo' <<<"${_x}") credits one or more contributors found on the SDN list, ($(jq -r '.programList' <<<"${_x}") program list(s)), as an $(jq -r '.sdnType' <<<"${_x}") known as $(jq -r '.lookups|join(" and ")' <<<"${_x}"), with the email $(jq -r '.email_addr' <<<"${_x}").\n\n### Overview\nThis project contains one or more contributions crediited by the maintainers as being provided by an entity or individual that appears on the Specially Designated Nationals and Blocked Persons list ('SDN List') published by US Department of Treasury's Office of Foreign Asset Control (OFAC) used to regulate US sanctions pertaining to those on the SDN List.\n### Impact\nThe US OFAC Sanctions are  'strict liability', which means it does not matter whether you know about them or not. Violating these rules can lead to serious penalties, so it's important to understand how these rules might affect the incorporation of this project's software. The application of U.S. sanctions, including both their prohibitions and exemptions, to open source software or standards-related activities is not 100% well defined, as OFAC has yet to issue clear guidance on whether and how U.S. sanctions apply to open source or standards-related activities.\n\n### References\nhttps://www.linuxfoundation.org/blog/navigating-global-regulations-and-open-source-us-ofac-sanctions.\n\n### Recommendation\nSeek legal counsel regarding potential issues or questions.\n",
+    "severity": "$(jq -r '.confidence' <<<"${_x}")",
+    "domain": "author",
+    "details": null,
+    "impact": "$(jq -r '.confidence' <<<"${_x}")",
+    "riskType": "authorsRisk"
+  }
+_MYSDNEOF
+      done | jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
+
     [[ "${__risk__}" == "licenseRisk" ]] && _say "collecting copy-left license issues..." && _liseq=0 && \
       while read -r __grepo; read -r __lic
       do
@@ -5215,7 +5508,7 @@ _MYLICEOF
     # TODO: test if __SBOM__ before this find and __PHYLUM__ for the next find
     #
     [[ "${__risk__}" == "vulnerabilities" ]] && 
-      [[ ! ${_grype_ver} == "unknown" ]]&& 
+      [[ ! ${_grype_ver} == "${__NOASSERTION__}" ]] &&
       [[ -s ${__grypeFiles} ]] && _say "collecting grype vulnerabilities..." && \
       xargs -a "${__grypeFiles}" -0 \
         jq --slurp 'unique_by(.title,.description,.tag,.id)|sort_by(.tag)' >> "${3}"
@@ -5373,6 +5666,7 @@ check_scir_files()
   _fil=$(
     ls -1 \
       ./*_sbom.json \
+      ./*_sbom_grype.json \
       ./*package-lock.json \
       ./*npm-shrinkwrap.json \
       ./*yarn.lock \
@@ -5469,6 +5763,7 @@ do_runtime_localizations()
 #
 check_runtime()
 {
+  local _info
   _rc=0 # 0 = no error, 1 = non recoverable error
 
   #
@@ -5496,7 +5791,7 @@ check_runtime()
   # the required binaries
   #
   # unzip is needed if phylum is to be installed
-  for cmd in ps pgrep pkill bc jq curl $(${_useDocker} && echo docker) base64 iconv sha256sum unzip
+  for cmd in ps pgrep pkill bc jq curl $(${_useDocker} && echo docker) base64 iconv sha256sum unzip csvtool
   do
     [ -z "$(command -v "${cmd}")" ] &&
       _err "required command, ${cmd}: not found in path or not installed" &&
@@ -5542,6 +5837,7 @@ check_runtime()
     fi
   done
 
+  _sdnlist_ver="${__NOASSERTION__}"
   local -n _sp
   for _sp in _OSSSCIRsettings _MITRHCconfig _MITRHCscripts _OSSSCIRlicenseDB _OSSSCIRrepoResolveDB
   do
@@ -5567,10 +5863,13 @@ check_runtime()
   # grab version numbers for report metadata
   #
   _ossf_scorecard_ver="$($("${_useDocker}" && echo docker run --rm) "${_OSSFSC}" version 2>&1 | grep GitVersion | cut -d: -f2 | sed 's/ //g')"
-  [[ -z "${_ossf_scorecard_ver}" ]] && _warn "could not determine OSSF/Scorecard version" && _ossf_scorecard_ver="unknown"
+  [[ -z "${_ossf_scorecard_ver}" ]] && _warn "could not determine OSSF/Scorecard version" && _ossf_scorecard_ver="${__NOASSERTION__}"
 
-  _mitre_hipcheck_ver="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" --version | cut -d\  -f2)"
-  [[ -z "${_mitre_hipcheck_ver}" ]] && _warn "could not determine MITRE Hipcheck version" && _mitre_hipcheck_ver="unknown"
+  _info="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" ready)"
+  _mitre_hipcheck_ver="$(grep -o -E '(hipcheck ([[:alnum:]][. ]*)+)' <<<"${_info}" | sed 's/hipcheck //g')"
+  [[ -z "${_mitre_hipcheck_ver}" ]] && _warn "could not determine MITRE Hipcheck version" && _mitre_hipcheck_ver="${__NOASSERTION__}"
+  _MITRHCcache="$(grep -o -E '(Cache Path:[[:space:]]+(/[[:alnum:]_.]+)+)' <<<"${_info}"|sed 's/Cache Path://g;s/[[:space:]]*//g')"
+  [[ -z "${_MITRHCcache}" ]] && _fatal "could not determine MITRE Hipcheck cache folder" && _MITRHCcache=""
   # assume latest
   # --quiet 3.1.x thru 3.2.1 otherwise '--verbosity quiet' 3.3.0 onward
   # --json 3.1.x thru 3.2.1 otherwise '--format json' 3.3.0 onward
@@ -5589,10 +5888,10 @@ check_runtime()
   esac
 
   "${_doPhylum}" && { _phylum_ver="$(phylum --version | cut -d\  -f2)"
-  [[ -z "${_phylum_ver}" ]] && _warn "could not determine Phylum CLI version" && _phylum_ver="unknown"; }
+  [[ -z "${_phylum_ver}" ]] && _warn "could not determine Phylum CLI version" && _phylum_ver="${__NOASSERTION__}"; }
 
   _ossf_critscorecard_ver="$(${_OSSFCS} -depsdev-disable https://github.com/ 2>&1 | grep criticality_score@ | cut -d@ -f2|cut -d/ -f1|sort|uniq)"
-  [[ -z "${_ossf_critscorecard_ver}" ]] && _warn "could not determine OSSF/criticality_score version" && _ossf_critscorecard_ver="unknown"
+  [[ -z "${_ossf_critscorecard_ver}" ]] && _warn "could not determine OSSF/criticality_score version" && _ossf_critscorecard_ver="${__NOASSERTION__}"
 
   # not required (yet)
   # grype appears to auto update when first run specifically for a check
@@ -5600,7 +5899,7 @@ check_runtime()
   _grype_ver=""
   [[ -n "$(command -v "${_GRYPEC}")" ]] &&
     _grype_ver="$({ "${_GRYPEC}" --version | cut -d\  -f2; GRYPE_DB_VALIDATE_AGE=false "${_GRYPEC}" db status -o json | jq -r '"db",.schemaVersion,"built on",.built' ; } | tr '\n' ' ')"
-  [[ -z "${_grype_ver}" ]] && _warn "could not determine grype version (vul reports skipped)" && _grype_ver="unknown"
+  [[ -z "${_grype_ver}" ]] && _warn "could not determine grype version (vul reports skipped)" && _grype_ver="${__NOASSERTION__}"
 
   #
   #
@@ -5632,7 +5931,7 @@ check_runtime()
 
   [[ "${dependency_type}" == "${__PHYLUM__}" ]] && {
     local _bearer;
-    if ! _bearer=$(phylum auth token --bearer); then _err "got phylum token? ${?}" && _rc=1; fi
+    if ! _bearer=$(phylum auth token --bearer 2>/dev/null); then _err "got phylum token? ${?}" && _rc=1; fi
     [ -z "${_bearer}" ] &&
       _err "required phylum bearer token not available, see 'phylum auth status' for details" &&
       _rc=1;
@@ -5648,15 +5947,6 @@ check_runtime()
   [ -z "${dependency_src}" ] &&
     _err "required dependency specification not specified (e.g., -P <phylum project> or -P <[syft|GitHub] sbom file>)" &&
     _rc=1
-
-  #
-  # TODO: fix - this is an unnecessary restriction
-  #
-  [[ "${dependency_type}" == "${__PHYLUM__}" ]] && {
-    [ ! "${component}" = "${dependency_src}" ] &&
-      _err "required phylum and local project must be the same TODO: fix (e.g., -P fleetth -C fleetth)" &&
-      _rc=1;
-  }
 
   [ "${gh_site}" = "${__NULLGH__}" ] &&
     _warn "Github project site not specified for ${component} (e.g., -G ossf/scorecard)"
@@ -6059,7 +6349,7 @@ _phylumeof
  },
  {
    "id": "${_LOCAL_SBOM_ID}",
-   "value": "$(_sbom_val "${__ghrsbomjson}")<br/>Language package managers detected: $(_sbom_pkgs "${__component_prjs}")",
+   "value": "$(_sbom_val "$({ [[ "${dependency_type}" == "${__PHYLUM__}" ]] && echo "${__ghrsbomjson}"; } || echo "${dependency_src}")")<br/>Language package managers detected: $(_sbom_pkgs "${__component_prjs}")",
    "label": "${_LOCAL_SBOM_LABEL}",
    "description": "${_LOCAL_SBOM_DESC}",
    "risk": "${_LOCAL_SBOM_RISK}"
@@ -6098,6 +6388,20 @@ _phylumeof
    "label": "${_LOCAL_SECTION___MALICIOUS_ACTORS_LABEL}",
    "description": "${_LOCAL_SECTION___MALICIOUS_ACTORS_DESC}",
    "risk": "${_LOCAL_SECTION___MALICIOUS_ACTORS_RISK}"
+ },
+ {
+   "id": "${_LOCAL_ANONYMOUS_AUTHOR_ID}",
+   "value": "$(_anonyactors "${__ghrcommitjson}")",
+   "label": "${_LOCAL_ANONYMOUS_AUTHOR_LABEL}",
+   "description": "${_LOCAL_ANONYMOUS_AUTHOR_DESC}",
+   "risk": "${_LOCAL_ANONYMOUS_AUTHOR_RISK}"
+ },
+ {
+   "id": "${_LOCAL_SANCTIONED_AUTHOR_ID}",
+   "value": "$(_sdnactors "${__ghrcommitjson}")",
+   "label": "${_LOCAL_SANCTIONED_AUTHOR_LABEL}",
+   "description": "${_LOCAL_SANCTIONED_AUTHOR_DESC}",
+   "risk": "${_LOCAL_SANCTIONED_AUTHOR_RISK}"
  },
  {
    "id": "${_LOCAL_BAD_AUTHOR_VULS_ID}",
@@ -6283,7 +6587,7 @@ _phylumeof
  },
  {
    "id": "${_LOCAL_METADATA_CREDITS_ID}",
-   "value": "<a href='https://github.com/ossf/scorecard'>OSSF/Scorecard ${_ossf_scorecard_ver}</a>, <a href='https://github.com/ossf/criticality_score'>OSSF/Critical Score ${_ossf_critscorecard_ver}</a>, <a href='https://github.com/mitre/hipcheck'>MITRE Hipcheck ${_mitre_hipcheck_ver}</a>, $( "${_doPhylum}" && echo "<a href='https://phylum.io'>Phylum.io ${_phylum_ver}</a>, ")<a href='https://github.com/anchore/grype'>grype ${_grype_ver}</a>",
+   "value": "<a href='https://github.com/ossf/scorecard'>OSSF/Scorecard ${_ossf_scorecard_ver}</a>, <a href='https://github.com/ossf/criticality_score'>OSSF/Critical Score ${_ossf_critscorecard_ver}</a>, <a href='https://github.com/mitre/hipcheck'>MITRE Hipcheck ${_mitre_hipcheck_ver}</a>, $( "${_doPhylum}" && echo "<a href='https://phylum.io'>Phylum.io ${_phylum_ver}</a>, ")<a href='https://github.com/anchore/grype'>grype ${_grype_ver}</a>, <a href='https://sanctionslist.ofac.treas.gov/Home/SdnList'>OFAC SDN last updated ${_sdnlist_ver}</a>",
    "label": "${_LOCAL_METADATA_CREDITS_LABEL}",
    "description": "${_LOCAL_METADATA_CREDITS_DESC}",
    "risk": "${_LOCAL_METADATA_CREDITS_RISK}"
@@ -6416,6 +6720,9 @@ ${BFLAGS[subdeps]} && component_subdep_rebuild="true"
       _say "rebuilding scorecards for ${component} dependencies..." &&
       build_scorecards "${__ghrjson}" "${__component_prjs}" "${scoreDepth}"
 
+  #
+  # TODO: would like to do this in _run_mychecks()
+  _say "checking OFAC SDNs" && detect_sdn "${__sdnDB}"
   #
   # TODO: only validate if building scorecards
   #       above resulted in a change
@@ -6721,7 +7028,7 @@ _fdverbose=/dev/null
 __logger="cat"
 __logfil="${__NULLLOG__}"
 
-_cmdline="${0} ${*}"
+_cmdline="${0} analyze ${*}"
 
 #
 # check bash version for compatibility issues
@@ -6931,7 +7238,7 @@ mkdir -p logs/
 [[ "${dependency_type}" == "${__SBOM__}" ]] && {
   _msg="are declared to include transitive dependencies"
   [[ ${issueDepth} == "auto" ]] && issueDepth=0
-  [[ "${dependency_src^^}" != "${__GITHUB__}" ]] && mv -i "${dependency_src}" ./ && 
+  [[ "${dependency_src^^}" != "${__GITHUB__}" ]] && cp -a "${dependency_src}" ./ &&
     _msg="are likely not to include transtive dependencies" && issueDepth=1
   dependency_src="$(basename "${dependency_src}")";
   _info "SBOM dependencies in '${dependency_src}' ${_msg} - issue depth is ${issueDepth} (change with -i)"
@@ -6976,6 +7283,8 @@ __ghhtml=$(basename "${gh_site}")_gh.html
 __ghrjson=$(basename "${gh_site}")_ghapi.json
 __ghrsbomjson=$(basename "${gh_site}")_ghapi_sbom.json
 __ghrcontribjson=$(basename "${gh_site}")_ghapi_contrib.json
+__gitcontribcsv=$(basename "${gh_site}")_gitcli_contrib.csv
+__sdnDB=sdnDB.json
 __ghrcommitjson=$(basename "${gh_site}")_ghapi_commit.json
 
 #
