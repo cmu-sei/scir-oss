@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250905 (branch: publicRelease)"
+readonly _version="pubRel 250918 (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -4969,8 +4969,8 @@ detect_sdn()
   _hcache="${_MITRHCcache}"
   ${_useDocker} && _hcache="${HOME}/.cache/hipcheck"
   _say -n "collecting git contributors..."
-  cp /dev/null "${_cwd}/${__gitcontribcsv}"
-  cp /dev/null "${__gitcontribcsv/contrib/unk_contrib}"
+  cp /dev/null "${_cwd}/${__gitcontribcsv}.tmp"
+  cp /dev/null "${__gitcontribcsv/contrib/unk_contrib}.tmp"
   #
   # for every github/repo site for which hipcheck was
   # run, there should be a git clone where committer
@@ -4989,15 +4989,26 @@ detect_sdn()
     { while IFS= read -r _committer
     do
       echo "${_sdnDir},${_committer//[<>]/}"
-    done < <(git shortlog -sne HEAD | grep -o -E '<[() [:alnum:]].*@[[:alnum:]].*>'); } >> "${_cwd}/${__gitcontribcsv}"
+    done < <(git shortlog -sne HEAD | grep -o -E '<[() [:alnum:]].*@[[:alnum:]].*>'); } >> "${_cwd}/${__gitcontribcsv}.tmp"
 
     { while IFS= read -r _committer
     do
       echo "${_sdnDir},${_committer//[<>]/}"
-    done < <(git shortlog -sne HEAD | grep -v -o -E '<[() [:alnum:]].*@[[:alnum:]].*>'); } >> "${_cwd}/${__gitcontribcsv/contrib/unk_contrib}"
+    done < <(git shortlog -sne HEAD | grep -v -o -E '<[() [:alnum:]].*@[[:alnum:]].*>'); } >> "${_cwd}/${__gitcontribcsv/contrib/unk_contrib}.tmp"
 
     popd > /dev/null || cd "${_cwd}" || break
   done < <(find . ! -size 0 -type f -iname \*hc.json);
+
+  ! cmp -s "${__gitcontribcsv}.tmp" "${__gitcontribcsv}" && \
+      mv "${__gitcontribcsv}.tmp" "${__gitcontribcsv}"
+  ! cmp -s "${__gitcontribcsv/contrib/unk_contrib}.tmp" "${__gitcontribcsv/contrib/unk_contrib}" && \
+      mv "${__gitcontribcsv/contrib/unk_contrib}.tmp" "${__gitcontribcsv/contrib/unk_contrib}"
+  rm -f "${__gitcontribcsv}.tmp" "${__gitcontribcsv/contrib/unk_contrib}.tmp"
+
+  #
+  # IFF there are newer known contributors - force issues update using BFLAGS
+  #
+  [[ "${__gitcontribcsv}" -nt "${component}_allIssues.json" ]] && _say "detected contributor change, rebuilding issues" && BFLAGS[issues]=true
 
   _say "OK"
 
@@ -7216,7 +7227,7 @@ mkdir -p "${_wkgDir}/${component}"
 _say "setting current working folder to ${component}"
 pushd "${_wkgDir}/${component}" >&"${_fdverbose}" || _fatal "can't set working folder to ${_wkgDir}/${component}"
 
-date +%s > "${__RUNTIME__}"
+date +%s > "${__RUNTIME__}" || _fatal "working folder ${_wkgDir}/${component} not writable for $(id)"
 
 #
 # since 'preMVP 240507a (branch: main)' tidy
