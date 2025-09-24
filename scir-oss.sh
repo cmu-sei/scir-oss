@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250918 (branch: publicRelease)"
+readonly _version="pubRel 250923 (branch: plugin-arch)"
 
 #
 # check_runtime will confirm these settings
@@ -4359,6 +4359,9 @@ _run_mychecks()
     esac
   done
 
+  _say -n "running plugins..."
+  _run_scir_plugins "${component}" "$(basename "${gh_site}")" "" ""
+  _say OK
   _say "MY specific checks done"
   return
 }
@@ -5309,6 +5312,12 @@ build_caches()
     _phy_prj_cache
   }
 
+  #########
+  # pre-cache for plugins
+  _say -n "checking pluging caches..."
+  _cache_scir_plugins
+  _say OK
+
   return
 }
 
@@ -5967,6 +5976,11 @@ check_runtime()
     _rc=1
   fi
 
+  _say -n "loading & initializing plugins..."
+  _load_scir_plugins "${_OSSSCIRsettings}/scir-oss/plugins"
+  _init_scir_plugins
+  _say OK
+
   return ${_rc}
 }
 _saveOff_json_Computed_scores()
@@ -6309,6 +6323,7 @@ _phylumeof
    "description": "${_LOCAL_VULN_CHECK_DESC}",
    "risk": "${_LOCAL_VULN_CHECK_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___SECURITY_ID}")
  {
    "id": "${_LOCAL_SECTION___INTEGRITY_ID}",
    "value": "${__SECTION__}",
@@ -6351,6 +6366,7 @@ _phylumeof
    "description": "${_LOCAL_CRYPTO_SIGNED_RELEASES_ARTIFACTS_DESC}",
    "risk": "${_LOCAL_CRYPTO_SIGNED_RELEASES_ARTIFACTS_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___INTEGRITY_ID}")
  {
    "id": "${_LOCAL_SECTION___DEPENDENCIES_ID}",
    "value": "${__SECTION__}",
@@ -6393,6 +6409,7 @@ _phylumeof
    "description": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_PROPRIETARY_DESC}",
    "risk": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_PROPRIETARY_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___DEPENDENCIES_ID}")
  {
    "id": "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}",
    "value": "${__SECTION__}",
@@ -6428,6 +6445,7 @@ _phylumeof
    "description": "${_LOCAL_BAD_AUTHOR_MALICIOUS_DESC}",
    "risk": "${_LOCAL_BAD_AUTHOR_MALICIOUS_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}")
  {
    "id": "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}",
    "value": "${__SECTION__}",
@@ -6512,6 +6530,7 @@ _phylumeof
    "description": "${_LOCAL_VUL_REPORTING_PROCESS_DESC}",
    "risk": "${_LOCAL_VUL_REPORTING_PROCESS_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}")
  {
    "id": "${_LOCAL_SECTION___SUITABILITY_ID}",
    "value": "${__SECTION__}",
@@ -6533,6 +6552,7 @@ _phylumeof
    "description": "${_LOCAL_LICENSE_RISK_DESC}",
    "risk": "${_LOCAL_LICENSE_RISK_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___SUITABILITY_ID}")
  {
    "id": "${_LOCAL_SECTION___REPORT_METADATA_ID}",
    "value": "${__SECTION__}",
@@ -6925,6 +6945,116 @@ _set_bldFlags()
            ;;
     esac
   done
+
+  return 0
+}
+
+declare -A scir_plugins
+
+#
+# arguments
+# 1: FQ Path for the plugins folder from which to source plugins
+#
+_load_scir_plugins()
+{
+  local _fn
+  local _pn
+
+  while IFS= read -r _fn
+  do
+    # shellcheck disable=1090
+    source "${_fn}" || { _warn "can't find ${_fn}, skipping..."; continue; }
+
+    _fn="$(basename "${_fn}")"
+
+    scir_plugins["${_fn/_plugin.sh/}"]=${_fn/_plugin.sh/}
+    _pn=${_fn/_plugin.sh/}_name
+
+    _debug loaded "${scir_plugins["${_fn/_plugin.sh/}"]}": "${!_pn}"
+
+    shift 1
+  done < <(find "${1}" -maxdepth 1 -type f -name \*_plugin.sh)
+
+  return 0
+}
+
+_init_scir_plugins()
+{
+  local _fn
+
+  while IFS= read -r _x
+  do
+    _fn=${_x}_init
+    [[ -n "$(command -v "${!_fn}")" ]] && ${!_fn}
+  done < <(tr ' ' '\n' <<<"${scir_plugins[@]}")
+
+  return 0
+}
+
+_cache_scir_plugins()
+{
+  local _fn
+
+  while IFS= read -r _x
+  do
+    _fn=${_x}_cache
+    [[ -n "$(command -v "${!_fn}")" ]] && ${!_fn}
+  done < <(tr ' ' '\n' <<<"${scir_plugins[@]}")
+
+  return 0
+}
+
+#
+# args are:
+#  1: "${component}" passed by -C as in 'oparest'
+#     this is the prefix for files generally created by OSS-P4/R
+#  2: "$(basename "${gh_site}")" basename as in 'opa-restful' as passed by -G as in 'go-training/opa-restful'
+#     this is the prefix for cache files from github API and git CLI
+#  3: (future reserved)
+#  4: (future reserved)
+#
+_run_scir_plugins()
+{
+  local _fn
+
+  while IFS= read -r _x
+  do
+    _fn=${_x}_run
+    [[ -n "$(command -v "${!_fn}")" ]] && ${!_fn} "${1}" "${2}" "${3}" "${4}"
+  done < <(tr ' ' '\n' <<<"${scir_plugins[@]}")
+
+  return 0
+}
+
+_report_scir_plugins()
+{
+  local _fn
+  local _sc
+  local _id
+  local _label
+  local _desc
+  local _risk
+  local _section
+
+  _section="${1}"
+  while IFS= read -r _x
+  do
+    _fn=${_x}_report
+    _sc=${_x}_section
+    [[ -n "$(command -v "${!_fn}")" ]] && [[  ${!_sc} = "${_section}" ]] && {
+     _id=${_x}_id
+     _label=${_x}_label
+     _desc=${_x}_desc
+     _risk=${_x}_risk
+     echo "{"
+     echo "\"id\": \"${!_id}\",";
+     echo "\"value\": \"$(${!_fn})\",";
+     echo "\"label\": \"${!_label}\","
+     echo "\"description\": \"${!_desc}\","
+     echo "\"risk\": \"${!_risk}\""
+     echo "},"
+    }
+  done < <(tr ' ' '\n' <<<"${scir_plugins[@]}")
 
   return 0
 }
