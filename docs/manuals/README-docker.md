@@ -14,7 +14,7 @@ cd scir-oss
 #
 git clone https://github.com/ossf/criticality_score.git
 cd criticality_score
-docker build -f ../Dockerfile.criticality_score -t cmu-sei/criticality_score:dev .
+docker build -f ../Dockerfile.criticality_score --platform linux/amd64 -t cmu-sei/criticality_score:dev .
 docker images | grep -E '(REPOSITORY|cmu-sei/criticality_score)'
 REPOSITORY                    TAG     IMAGE ID       CREATED         SIZE
 cmu-sei/criticality_score     dev     004b13def645   4 weeks ago     102MB
@@ -22,7 +22,7 @@ cd ..
 #
 # now build the OSS-P4/R container
 #
-docker build -f ./Dockerfile.p4-prod -t cmu-sei/scir-oss:prod .
+docker build -f ./Dockerfile.p4-prod --platform linux/amd64 -t cmu-sei/scir-oss:prod .
 docker images | grep -E '(REPOSITORY|cmu-sei/scir-oss)'
 REPOSITORY                    TAG     IMAGE ID       CREATED         SIZE
 cmu-sei/scir-oss              prod    bf55152dc404   28 minutes ago  744MB
