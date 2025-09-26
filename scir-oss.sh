@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250923 (branch: plugin-arch)"
+readonly _version="pubRel 250925 (branch: plugin-arch)"
 
 #
 # check_runtime will confirm these settings
@@ -231,7 +231,7 @@ declare -A PFourProjectChecks=( \
   [SCscore]="Code-Review CI-Tests CII-Best-Practices Contributors Fuzzing Maintained SAST" \
   [HCscore]="Activity Identity Affiliation Fuzz Review" \
   [PHYscore]="author" \
-  [MYscore]="AnonymousAuthor ProjectForked ProblemReporting DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
+  [MYscore]="ProjectForked ProblemReporting DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
   )
 
 declare -A PFourProjectScores=( \
@@ -434,7 +434,7 @@ declare -A CIOmalActorsChecks=( \
   [SCscore]="${__NOCHECK__}" \
   [HCscore]="Affiliation" \
   [PHYscore]="author" \
-  [MYscore]="AnonymousAuthor SanctionedAuthor" \
+  [MYscore]="${__NOCHECK__}" \
   )
 
 declare -A CIOmalActorsScores=( \
@@ -459,7 +459,7 @@ declare -A CIOsuitabilityChecks=( \
   [SCscore]="License" \
   [HCscore]="${__NOCHECK__}" \
   [PHYscore]="license" \
-  [MYscore]="ProjectRestrictiveLicense DepProjectsRestrictiveLicense TertiaryProjectsRestrictiveLicense" \
+  [MYscore]="SanctionedAuthor ProjectRestrictiveLicense DepProjectsRestrictiveLicense TertiaryProjectsRestrictiveLicense" \
   )
 
 declare -A CIOsuitabilityScores=( \
@@ -633,7 +633,6 @@ declare -A MYcheckScores=( \
   [ProjectRestrictiveLicense]="${__NAN__}" \
   [DepProjectsRestrictiveLicense]="${__NAN__}" \
   [TertiaryProjectsRestrictiveLicense]="${__NAN__}" \
-  [AnonymousAuthor]="0" \
   [SanctionedAuthor]="0" \
   )
 
@@ -649,7 +648,6 @@ declare -A MYcheckLabels=( \
   [ProjectRestrictiveLicense]="Restrictive License(s)" \
   [DepProjectsRestrictiveLicense]="Dependent Restrictive License(s)" \
   [TertiaryProjectsRestrictiveLicense]="Other Restrictive License(s)" \
-  [AnonymousAuthor]="Anonymous Author" \
   [SanctionedAuthor]="Sanctioned Author" \
   )
 
@@ -667,7 +665,6 @@ declare -A MYcheckWeights=( \
   [ProjectRestrictiveLicense]="${SCcritical}" \
   [DepProjectsRestrictiveLicense]="${SChigh}" \
   [TertiaryProjectsRestrictiveLicense]="${SClow}" \
-  [AnonymousAuthor]="${SClow}" \
   [SanctionedAuthor]="${SCcritical}" \
   )
 
@@ -683,15 +680,24 @@ declare -A MYcheckThresholds=( \
   [ProjectRestrictiveLicense]="0" \
   [DepProjectsRestrictiveLicense]="0" \
   [TertiaryProjectsRestrictiveLicense]="0" \
-  [AnonymousAuthor]="0" \
   [SanctionedAuthor]="0" \
   )
+
+#
+# these are advisory checks
+# will not generate a redFlag but a warning
+# value is the test (lt, gt, le, ge) of value to threshold
+#   warning is emitted if value "test" threshold is true
+#   (normally a redFlag would be emitted)
+# normally used by plugins
+#
+declare -A advisoryChecks=( \
+  [MYcheck:dummy]="gt"
+)
 
 declare -A foundLicenses
 
 declare -A licenseChecks
-
-declare -A ANONYhits
 
 declare -A SDNhits
 
@@ -1766,14 +1772,13 @@ $(_wwwhtml_wrapper_start)
              do
                [[ "${__NOCHECK__}" == "${_check}" ]] && break
                [[ "${__CHECKNOTIMPL__}" == "${_sarray[${_check}]}" ]] || [[ -z "${_sarray[${_check}]}" ]] && continue
-               case "${_check}" in
-                 AnonymousAuthor)
-                   _wflag="--warnFlag"
-                   ;;
-                 *)
-                   _wflag=""
-                   ;;
-               esac
+               #
+               # support advisory warnings in summary
+               # assumes all checks are unique
+               # TODO: remove the unique assumption
+               #
+               _wflag=""
+               [[ -n "${advisoryChecks["${_check}"]}" ]] && _wflag="--warnFlag" && _tt="${advisoryChecks["${_check}"]}"
                # need _wflag to not be an arg if unset
                # shellcheck disable=2086
                echo -n "$(_fotp ${_wflag} "${_sarray["${_check}"]}" "${_tarray["${_check}"]}" "${_tt}")${_larray[${_check}]}($(_fppp "${_fp}" "${_sarray[${_check}]}")/${_tarray[${_check}]})<br/>"
@@ -4345,9 +4350,6 @@ _run_mychecks()
         MYcheckScores["${check}"]="${__CHECKNOTIMPL__}"
         #MYcheckScores["${check}"]="$(_find_restrictive_licenses --tertiary)"
         ;;
-      AnonymousAuthor)
-        MYcheckScores["${check}"]="${#ANONYhits[@]}"
-        ;;
       SanctionedAuthor)
         # computed in detect_sdn
         # can't do this here (yet)
@@ -5031,25 +5033,7 @@ detect_sdn()
            . += { "committer":$EM, "repo":$RP }' "${1}")"
   done < "${__gitcontribcsv}"
 
-  while IFS=, read -r _repo _committer
-  do
-    ANONYhits["${_repo},${_committer}"]="{ \"committer\":\"${_committer}\", \"repo\": \"${_repo}\"}"
-    jq -r --arg EM "${_committer}" \
-      '.emails[]|select (.email_addr|IN($EM))|[.source,.confidence]|@csv' < "${1}"
-  done < "${__gitcontribcsv/contrib/unk_contrib}"
-
   _say "OK"
-
-  return 0
-}
-
-_anonyactors()
-{
-  local _msg
-
-  _msg=", no anonymous author(s) detected."
-  [[ ${MYcheckScores[AnonymousAuthor]} -gt ${MYcheckThresholds[AnonymousAuthor]} ]] && _msg=", detected anonymous author(s) $( jq -r '.|[.committer, .repo]|join(",")' <<<"${ANONYhits[@]}"|tr '\n' ';'|sed 's/;/; /g'|sed 's/; $//g' )"
-  echo "$(_fotp --warnFlag "${MYcheckScores[AnonymousAuthor]}" "${MYcheckThresholds[AnonymousAuthor]}" "gt")${MYcheckScores[AnonymousAuthor]}/${MYcheckThresholds[AnonymousAuthor]}${_msg}"
 
   return 0
 }
@@ -6418,20 +6402,6 @@ $(_report_scir_plugins "${_LOCAL_SECTION___DEPENDENCIES_ID}")
    "risk": "${_LOCAL_SECTION___MALICIOUS_ACTORS_RISK}"
  },
  {
-   "id": "${_LOCAL_ANONYMOUS_AUTHOR_ID}",
-   "value": "$(_anonyactors "${__ghrcommitjson}")",
-   "label": "${_LOCAL_ANONYMOUS_AUTHOR_LABEL}",
-   "description": "${_LOCAL_ANONYMOUS_AUTHOR_DESC}",
-   "risk": "${_LOCAL_ANONYMOUS_AUTHOR_RISK}"
- },
- {
-   "id": "${_LOCAL_SANCTIONED_AUTHOR_ID}",
-   "value": "$(_sdnactors "${__ghrcommitjson}")",
-   "label": "${_LOCAL_SANCTIONED_AUTHOR_LABEL}",
-   "description": "${_LOCAL_SANCTIONED_AUTHOR_DESC}",
-   "risk": "${_LOCAL_SANCTIONED_AUTHOR_RISK}"
- },
- {
    "id": "${_LOCAL_BAD_AUTHOR_VULS_ID}",
    "value": "Manual",
    "label": "${_LOCAL_BAD_AUTHOR_VULS_LABEL}",
@@ -6551,6 +6521,13 @@ $(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}")
    "label": "${_LOCAL_LICENSE_RISK_LABEL}",
    "description": "${_LOCAL_LICENSE_RISK_DESC}",
    "risk": "${_LOCAL_LICENSE_RISK_RISK}"
+ },
+ {
+   "id": "${_LOCAL_SANCTIONED_AUTHOR_ID}",
+   "value": "$(_sdnactors "${__ghrcommitjson}")",
+   "label": "${_LOCAL_SANCTIONED_AUTHOR_LABEL}",
+   "description": "${_LOCAL_SANCTIONED_AUTHOR_DESC}",
+   "risk": "${_LOCAL_SANCTIONED_AUTHOR_RISK}"
  },
 $(_report_scir_plugins "${_LOCAL_SECTION___SUITABILITY_ID}")
  {
