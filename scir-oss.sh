@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250925 (branch: plugin-arch)"
+readonly _version="pubRel 250926 (branch: plugin-arch)"
 
 #
 # check_runtime will confirm these settings
@@ -4361,9 +4361,9 @@ _run_mychecks()
     esac
   done
 
-  _say -n "running plugins..."
+  #_say -n "running plugins..."
   _run_scir_plugins "${component}" "$(basename "${gh_site}")" "" ""
-  _say OK
+  #_say OK
   _say "MY specific checks done"
   return
 }
@@ -5298,7 +5298,7 @@ build_caches()
 
   #########
   # pre-cache for plugins
-  _say -n "checking pluging caches..."
+  _say -n "checking plugin caches..."
   _cache_scir_plugins
   _say OK
 
@@ -6935,21 +6935,26 @@ declare -A scir_plugins
 _load_scir_plugins()
 {
   local _fn
+  local _bn
   local _pn
 
   while IFS= read -r _fn
   do
+    [[ -f "${_fn}" ]] || \
+      { _warn "can't read ${_fn}, skipping..."; continue; }
+
+    _bn="$(basename "${_fn}")"
+    grep -q "^[[:space:]]*${_bn/_plugin.sh/}_enabled=true[[:space:]]*$" "${_fn}" || \
+      { _warn "plugin disabled ${_fn}, skipping..."; continue; }
+
     # shellcheck disable=1090
-    source "${_fn}" || { _warn "can't find ${_fn}, skipping..."; continue; }
+    source "${_fn}" || { _warn "can't source ${_fn}, skipping..."; continue; };
 
-    _fn="$(basename "${_fn}")"
+    scir_plugins["${_bn/_plugin.sh/}"]=${_bn/_plugin.sh/}
+    _pn=${_bn/_plugin.sh/}_name
 
-    scir_plugins["${_fn/_plugin.sh/}"]=${_fn/_plugin.sh/}
-    _pn=${_fn/_plugin.sh/}_name
+    _say -n "${scir_plugins["${_bn/_plugin.sh/}"]}: (${!_pn}), "
 
-    _debug loaded "${scir_plugins["${_fn/_plugin.sh/}"]}": "${!_pn}"
-
-    shift 1
   done < <(find "${1}" -maxdepth 1 -type f -name \*_plugin.sh)
 
   return 0
@@ -6997,7 +7002,12 @@ _run_scir_plugins()
   while IFS= read -r _x
   do
     _fn=${_x}_run
-    [[ -n "$(command -v "${!_fn}")" ]] && ${!_fn} "${1}" "${2}" "${3}" "${4}"
+    [[ -n "$(command -v "${!_fn}")" ]] && {
+      ${!_fn} "${1}" "${2}" "${3}" "${4}";
+#      _fn=${_x}_detailreport
+      _fn=${_fn/_run/_detailreport}
+      [[ -f "${!_fn}" ]] && _debug "${_x}: generated a detail report in ${!_fn}"
+    }
   done < <(tr ' ' '\n' <<<"${scir_plugins[@]}")
 
   return 0
