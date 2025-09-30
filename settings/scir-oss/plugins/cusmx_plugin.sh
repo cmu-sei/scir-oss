@@ -55,6 +55,19 @@ _p_cusmx_init()
   cusmx_section="${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}"
 
   #
+  # pick one as to where within the section results
+  # the report should appear
+  #
+  #  among those in the beginning
+  #  __REPORT__SECTION__HEAD__
+  #  anywhere in the section
+  #  __REPORT__SECTION__HERE__
+  #  among those at the end
+  #  __REPORT__SECTION__TAIL__
+  #
+  cusmx_position="${__REPORT__SECTION__TAIL__}"
+
+  #
   # label at it will appear in the CIO summary table
   #
   MYcheckLabels[${_p_CUSMX_checkname}]="CUSMX Author"

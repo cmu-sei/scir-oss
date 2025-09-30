@@ -231,7 +231,7 @@ declare -A PFourProjectChecks=( \
   [SCscore]="Code-Review CI-Tests CII-Best-Practices Contributors Fuzzing Maintained SAST" \
   [HCscore]="Activity Identity Affiliation Fuzz Review" \
   [PHYscore]="author" \
-  [MYscore]="ProjectForked ProblemReporting DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
+  [MYscore]="ProjectForked DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
   )
 
 declare -A PFourProjectScores=( \
@@ -334,7 +334,7 @@ declare -A CIOlongTermChecks=( \
   [SCscore]="Contributors Maintained CII-Best-Practices Security-Policy" \
   [HCscore]="Activity" \
   [PHYscore]="${__NOCHECK__}" \
-  [MYscore]="ProjectForked ProblemReporting DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
+  [MYscore]="ProjectForked DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
   )
 
 declare -A CIOlongTermScores=( \
@@ -624,7 +624,6 @@ declare -A PHYcheckWeights=( \
 declare -A MYcheckScores=( \
   [UnfixedVulnerabilities]="${__NAN__}" \
   [ProjectForked]="false" \
-  [ProblemReporting]="false" \
   [DepProjectsForked]="${__NAN__}" \
   [TertiaryProjectsForked]="${__NAN__}" \
   [ProjectAbandoned]="false" \
@@ -639,7 +638,6 @@ declare -A MYcheckScores=( \
 declare -A MYcheckLabels=( \
   [UnfixedVulnerabilities]="Unfixed Vuls" \
   [ProjectForked]="Project Forked" \
-  [ProblemReporting]="Problem Reporting" \
   [DepProjectsForked]="Dependent Projects Forked" \
   [TertiaryProjectsForked]="Other Projects Forked" \
   [ProjectAbandoned]="Project Abandoned" \
@@ -656,7 +654,6 @@ declare -A MYcheckLabels=( \
 declare -A MYcheckWeights=( \
   [UnfixedVulnerabilities]="${SCcritical}" \
   [ProjectForked]="${SCcritical}" \
-  [ProblemReporting]="${SCcritical}" \
   [DepProjectsForked]="${SCmedium}" \
   [TertiaryProjectsForked]="${SClow}" \
   [ProjectAbandoned]="${SCcritical}" \
@@ -671,7 +668,6 @@ declare -A MYcheckWeights=( \
 declare -A MYcheckThresholds=( \
   [UnfixedVulnerabilities]="0" \
   [ProjectForked]="false" \
-  [ProblemReporting]="true" \
   [DepProjectsForked]="0" \
   [TertiaryProjectsForked]="0" \
   [ProjectAbandoned]="false" \
@@ -4279,9 +4275,6 @@ _run_mychecks()
       ProjectForked)
         MYcheckScores["${check}"]="$(jq -rj '.fork' "${1}")"
         ;;
-      ProblemReporting)
-        MYcheckScores["${check}"]="$(jq -rj '.has_issues' "${1}")"
-        ;;
       DepProjectsForked)
         #
         # TODO: pull all dep.d repos from GHAPI
@@ -6220,6 +6213,7 @@ _compile_json_p4report()
    "description": "${_LOCAL_SECTION___SECURITY_DESC}",
    "risk": "${_LOCAL_SECTION___SECURITY_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___SECURITY_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_TRUSTED_SOURCE_ID}",
    "value": "Source: ${__gh}<br/>${_LOCAL_TRUSTED_SOURCE_NAME_LABEL} Availability: Manual<br/>Repo or Mirror: Manual",
@@ -6307,7 +6301,7 @@ _phylumeof
    "description": "${_LOCAL_VULN_CHECK_DESC}",
    "risk": "${_LOCAL_VULN_CHECK_RISK}"
  },
-$(_report_scir_plugins "${_LOCAL_SECTION___SECURITY_ID}")
+$(_report_scir_plugins "${_LOCAL_SECTION___SECURITY_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___INTEGRITY_ID}",
    "value": "${__SECTION__}",
@@ -6315,6 +6309,7 @@ $(_report_scir_plugins "${_LOCAL_SECTION___SECURITY_ID}")
    "description": "${_LOCAL_SECTION___INTEGRITY_DESC}",
    "risk": "${_LOCAL_SECTION___INTEGRITY_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___INTEGRITY_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_CONDUCT_PEER_REVIEWS_ID}",
    "value": "$(_peer_reviews "${_SCcard}" "${_HCcard}")",
@@ -6350,7 +6345,7 @@ $(_report_scir_plugins "${_LOCAL_SECTION___SECURITY_ID}")
    "description": "${_LOCAL_CRYPTO_SIGNED_RELEASES_ARTIFACTS_DESC}",
    "risk": "${_LOCAL_CRYPTO_SIGNED_RELEASES_ARTIFACTS_RISK}"
  },
-$(_report_scir_plugins "${_LOCAL_SECTION___INTEGRITY_ID}")
+$(_report_scir_plugins "${_LOCAL_SECTION___INTEGRITY_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___DEPENDENCIES_ID}",
    "value": "${__SECTION__}",
@@ -6358,6 +6353,7 @@ $(_report_scir_plugins "${_LOCAL_SECTION___INTEGRITY_ID}")
    "description": "${_LOCAL_SECTION___DEPENDENCIES_DESC}",
    "risk": "${_LOCAL_SECTION___DEPENDENCIES_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___DEPENDENCIES_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_SBOM_ID}",
    "value": "$(_sbom_val "$({ [[ "${dependency_type}" == "${__PHYLUM__}" ]] && echo "${__ghrsbomjson}"; } || echo "${dependency_src}")")<br/>Language package managers detected: $(_sbom_pkgs "${__component_prjs}")",
@@ -6393,7 +6389,7 @@ $(_report_scir_plugins "${_LOCAL_SECTION___INTEGRITY_ID}")
    "description": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_PROPRIETARY_DESC}",
    "risk": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_PROPRIETARY_RISK}"
  },
-$(_report_scir_plugins "${_LOCAL_SECTION___DEPENDENCIES_ID}")
+$(_report_scir_plugins "${_LOCAL_SECTION___DEPENDENCIES_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}",
    "value": "${__SECTION__}",
@@ -6401,6 +6397,7 @@ $(_report_scir_plugins "${_LOCAL_SECTION___DEPENDENCIES_ID}")
    "description": "${_LOCAL_SECTION___MALICIOUS_ACTORS_DESC}",
    "risk": "${_LOCAL_SECTION___MALICIOUS_ACTORS_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_BAD_AUTHOR_VULS_ID}",
    "value": "Manual",
@@ -6415,7 +6412,7 @@ $(_report_scir_plugins "${_LOCAL_SECTION___DEPENDENCIES_ID}")
    "description": "${_LOCAL_BAD_AUTHOR_MALICIOUS_DESC}",
    "risk": "${_LOCAL_BAD_AUTHOR_MALICIOUS_RISK}"
  },
-$(_report_scir_plugins "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}")
+$(_report_scir_plugins "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}",
    "value": "${__SECTION__}",
@@ -6423,6 +6420,7 @@ $(_report_scir_plugins "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}")
    "description": "${_LOCAL_SECTION___LONG_TERM_SUPPORT_DESC}",
    "risk": "${_LOCAL_SECTION___LONG_TERM_SUPPORT_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_PROJECT_BACKGROUND_REPRISE_ID}",
    "value": "$(_background "${__ghrjson}")",
@@ -6486,21 +6484,15 @@ $(_report_scir_plugins "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}")
    "description": "${_LOCAL_CORE_CONTRIB_MAINTAINER_COUNT_DESC}",
    "risk": "${_LOCAL_CORE_CONTRIB_MAINTAINER_COUNT_RISK}"
  },
- {
-   "id": "${_LOCAL_PROBLEM_REPORTING_PROCESS_ID}",
-   "value": "$(_problem_reporting "${__ghrjson}")",
-   "label": "${_LOCAL_PROBLEM_REPORTING_PROCESS_LABEL}",
-   "description": "${_LOCAL_PROBLEM_REPORTING_PROCESS_DESC}",
-   "risk": "${_LOCAL_PROBLEM_REPORTING_PROCESS_RISK}"
- },
- {
+$(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}" "${__REPORT__SECTION__HERE__}")
+{
    "id": "${_LOCAL_VUL_REPORTING_PROCESS_ID}",
    "value": "$(_vulsec_reporting "${_SCcard}")",
    "label": "${_LOCAL_VUL_REPORTING_PROCESS_LABEL}",
    "description": "${_LOCAL_VUL_REPORTING_PROCESS_DESC}",
    "risk": "${_LOCAL_VUL_REPORTING_PROCESS_RISK}"
  },
-$(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}")
+$(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___SUITABILITY_ID}",
    "value": "${__SECTION__}",
@@ -6508,6 +6500,7 @@ $(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}")
    "description": "${_LOCAL_SECTION___SUITABILITY_DESC}",
    "risk": "${_LOCAL_SECTION___SUITABILITY_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___SUITABILITY_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_LICENSE_NAME_ID}",
    "value": "$(_license_name "${__ghrjson}" | sed 's^ SPDX_ID^<br/>SPDX_ID^g')",
@@ -6529,7 +6522,7 @@ $(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}")
    "description": "${_LOCAL_SANCTIONED_AUTHOR_DESC}",
    "risk": "${_LOCAL_SANCTIONED_AUTHOR_RISK}"
  },
-$(_report_scir_plugins "${_LOCAL_SECTION___SUITABILITY_ID}")
+$(_report_scir_plugins "${_LOCAL_SECTION___SUITABILITY_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___REPORT_METADATA_ID}",
    "value": "${__SECTION__}",
@@ -6926,7 +6919,21 @@ _set_bldFlags()
   return 0
 }
 
+#
+# plugin interface
+#
 declare -A scir_plugins
+
+#
+# hints to control where plugin reports
+# should be emitted in report output
+#
+# near the beginning of a section
+readonly __REPORT__SECTION__HEAD__="__RHEAD__"
+# anywhere in a section
+readonly __REPORT__SECTION__HERE__="__RHERE__"
+# near the end of a section
+readonly __REPORT__SECTION__TAIL__="__RTAIL__"
 
 #
 # arguments
@@ -7017,18 +7024,29 @@ _report_scir_plugins()
 {
   local _fn
   local _sc
+  local _lo
   local _id
   local _label
   local _desc
   local _risk
   local _section
+  local _position
+  local default_position
 
+  # shellcheck disable=2034
+  default_position="${__REPORT__SECTION__TAIL__}"
   _section="${1}"
+  _position="${2}"
   while IFS= read -r _x
   do
     _fn=${_x}_report
     _sc=${_x}_section
-    [[ -n "$(command -v "${!_fn}")" ]] && [[  ${!_sc} = "${_section}" ]] && {
+    _lo=${_x}_position
+
+    [[ -z "${!_lo}" ]] && _lo=default_position
+
+    [[ -n "$(command -v "${!_fn}")" ]] && \
+      [[  ${!_sc} = "${_section}" ]] && [[  ${!_lo} = "${_position}" ]] && {
      _id=${_x}_id
      _label=${_x}_label
      _desc=${_x}_desc
