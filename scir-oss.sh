@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250926 (branch: plugin-arch)"
+readonly _version="pubRel 250930 (branch: plugin-arch)"
 
 #
 # check_runtime will confirm these settings
@@ -231,7 +231,7 @@ declare -A PFourProjectChecks=( \
   [SCscore]="Code-Review CI-Tests CII-Best-Practices Contributors Fuzzing Maintained SAST" \
   [HCscore]="Activity Identity Affiliation Fuzz Review" \
   [PHYscore]="author" \
-  [MYscore]="ProjectForked DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
+  [MYscore]="ProjectForked DepProjectsForked TertiaryProjectsForked" \
   )
 
 declare -A PFourProjectScores=( \
@@ -334,7 +334,7 @@ declare -A CIOlongTermChecks=( \
   [SCscore]="Contributors Maintained CII-Best-Practices Security-Policy" \
   [HCscore]="Activity" \
   [PHYscore]="${__NOCHECK__}" \
-  [MYscore]="ProjectForked DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
+  [MYscore]="ProjectForked DepProjectsForked TertiaryProjectsForked" \
   )
 
 declare -A CIOlongTermScores=( \
@@ -626,9 +626,6 @@ declare -A MYcheckScores=( \
   [ProjectForked]="false" \
   [DepProjectsForked]="${__NAN__}" \
   [TertiaryProjectsForked]="${__NAN__}" \
-  [ProjectAbandoned]="false" \
-  [DepProjectsAbandoned]="0" \
-  [TertiaryProjectsAbandoned]="${__NAN__}" \
   [ProjectRestrictiveLicense]="${__NAN__}" \
   [DepProjectsRestrictiveLicense]="${__NAN__}" \
   [TertiaryProjectsRestrictiveLicense]="${__NAN__}" \
@@ -640,9 +637,6 @@ declare -A MYcheckLabels=( \
   [ProjectForked]="Project Forked" \
   [DepProjectsForked]="Dependent Projects Forked" \
   [TertiaryProjectsForked]="Other Projects Forked" \
-  [ProjectAbandoned]="Project Abandoned" \
-  [DepProjectsAbandoned]="Dependent Projects Abandoned" \
-  [TertiaryProjectsAbandoned]="Other Projects Abandoned" \
   [ProjectRestrictiveLicense]="Restrictive License(s)" \
   [DepProjectsRestrictiveLicense]="Dependent Restrictive License(s)" \
   [TertiaryProjectsRestrictiveLicense]="Other Restrictive License(s)" \
@@ -656,9 +650,6 @@ declare -A MYcheckWeights=( \
   [ProjectForked]="${SCcritical}" \
   [DepProjectsForked]="${SCmedium}" \
   [TertiaryProjectsForked]="${SClow}" \
-  [ProjectAbandoned]="${SCcritical}" \
-  [DepProjectsAbandoned]="${SChigh}" \
-  [TertiaryProjectsAbandoned]="${SClow}" \
   [ProjectRestrictiveLicense]="${SCcritical}" \
   [DepProjectsRestrictiveLicense]="${SChigh}" \
   [TertiaryProjectsRestrictiveLicense]="${SClow}" \
@@ -670,9 +661,6 @@ declare -A MYcheckThresholds=( \
   [ProjectForked]="false" \
   [DepProjectsForked]="0" \
   [TertiaryProjectsForked]="0" \
-  [ProjectAbandoned]="false" \
-  [DepProjectsAbandoned]="0" \
-  [TertiaryProjectsAbandoned]="0" \
   [ProjectRestrictiveLicense]="0" \
   [DepProjectsRestrictiveLicense]="0" \
   [TertiaryProjectsRestrictiveLicense]="0" \
@@ -1880,18 +1868,6 @@ _user_org()
     sed 's/&quot;/"/g;s/,,/,Not Reported,/g;s/""/"Not Reported"/g;s/"//g;s/:,/: /g;s/,/, /g' | iconv -c -f utf-8 -t ascii)
 
   echo "${_ot}<p/>Details: ${_od//, /<br\/>}"
-  return
-}
-
-_abandoned_prjs()
-{
-  local _ptxt
-
-  _ptxt="is not"
-  [[ "${MYcheckScores[ProjectAbandoned]}" == "true" ]] && _ptxt="is"
-
-  echo "${1/_ghapi.json/} $(_fotp "${MYcheckScores[ProjectAbandoned]}" "${MYcheckThresholds[ProjectAbandoned]}")${_ptxt} archived; $(_fotp "${MYcheckScores[DepProjectsAbandoned]}" "${MYcheckThresholds[DepProjectsAbandoned]}" "gt")${MYcheckScores[DepProjectsAbandoned]} of the primary dependencies are abandoned; $(_fotp "-1")tertiary (other) dependencies are not checked at this time"
-
   return
 }
 
@@ -4291,29 +4267,6 @@ _run_mychecks()
         #
         MYcheckScores["${check}"]="${__CHECKNOTIMPL__}"
         ;;
-      ProjectAbandoned)
-        MYcheckScores["${check}"]="$(jq -r '.archived' "${1}")"
-        ;;
-      DepProjectsAbandoned)
-        _say -n "Counting abandoned projects..."
-        #
-        # scorecard 5.0 changed the "reason" check for both
-        #
-        MYcheckScores["${check}"]="$(find ./deps.d/ -name \*sc.json -print0 | \
-          xargs -0 grep -E '(repo is marked as archived|project is archived)' | cut -d: -f1|wc -l)"
-        _say "abandoned projects counting done."
-        ;;
-      TertiaryProjectsAbandoned)
-        #
-        # TODO: add this after scorecard and hipcheck are run on
-        # tertiary dependencies (subdep.d)
-        #
-        # are any of the tertiary dependencies abandoned (med)
-        #_tarchived="$(find ./subdeps.d/ -name \*sc.json -print0 | \
-        #  xargs -0 grep "repo is marked as archived" | cut -d: -f1|wc -l)"
-        #
-        MYcheckScores["${check}"]="${__CHECKNOTIMPL__}"
-        ;;
       ProjectRestrictiveLicense)
         #
         # TODO: add rubric for assessing what is and is
@@ -5087,6 +5040,7 @@ _phy_prj_cache()
 #
 build_caches()
 {
+  local _htcode
   ${blockNetwork} && _warn "Offline mode, cache updates, skipped" && return 0
 
   #########
@@ -5102,16 +5056,16 @@ build_caches()
 
   [ ! -f "${__ghhtml}" ] && _say -n "building GH html..." &&
     {
-      curl --silent \
+      _htcode="$(curl --silent --write-out "%{http_code}" \
         -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
         -H "Accept: application/vnd.github+json" "${__gh}" \
-        -o "${__ghhtml}" \
+        -o "${__ghhtml}")" \
     ||
       _fatal "gh html pre-cache failed.";
     };
 
-  [ ! -f "${__ghhtml}" ] || [ ! -s "${__ghhtml}" ] &&
-    _fatal "${__ghhtml} is missing or empty"
+  [ ! -f "${__ghhtml}" ] || [ ! -s "${__ghhtml}" ] || [ "${_htcode}" = "404" ] &&
+    _fatal "${__ghhtml} is missing or empty, or 404'ed on ${__gh} (see -G)"
 
   if grep -q Bad\ credentials "${__ghhtml}"; then _fatal "${__ghhtml} bad GITHUB_AUTH_TOKEN credentials"; fi
 
@@ -6455,13 +6409,6 @@ $(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}" "${__REPORT__S
    "label": "${_LOCAL_BEST_PRACTICES_LABEL}",
    "description": "${_LOCAL_BEST_PRACTICES_DESC}",
    "risk": "${_LOCAL_BEST_PRACTICES_RISK}"
- },
- {
-   "id": "${_LOCAL_ABANDONED_PROJECTS_ID}",
-   "value": "$(_abandoned_prjs "${__ghrjson}")",
-   "label": "${_LOCAL_ABANDONED_PROJECTS_LABEL}",
-   "description": "${_LOCAL_ABANDONED_PROJECTS_DESC}",
-   "risk": "${_LOCAL_ABANDONED_PROJECTS_RISK}"
  },
  {
    "id": "${_LOCAL_OSSF_CRIT_SCORE_ID}",
