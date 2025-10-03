@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 251002 (branch: publicRelease)"
+readonly _version="pubRel 251003 (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
