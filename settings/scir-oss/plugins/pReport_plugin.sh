@@ -143,7 +143,7 @@ _p_pReport_report()
 
 #
 # only loads if specifically set to true (no quotes)
-# must match pattern '^[[:space:]]*crink_enabled=true[[:space:]]*$'
+# must match pattern '^[[:space:]]*pReport_enabled=true[[:space:]]*$'
 #
 pReport_enabled=true
 

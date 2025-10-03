@@ -149,7 +149,7 @@ _p_anony_report()
 
 #
 # only loads if specifically set to true (no quotes)
-# must match pattern '^[[:space:]]*crink_enabled=true[[:space:]]*$'
+# must match pattern '^[[:space:]]*anony_enabled=true[[:space:]]*$'
 #
 anony_enabled=true
 

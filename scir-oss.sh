@@ -5064,8 +5064,9 @@ build_caches()
       _fatal "gh html pre-cache failed.";
     };
 
-  [ ! -f "${__ghhtml}" ] || [ ! -s "${__ghhtml}" ] || [ "${_htcode}" = "404" ] &&
-    _fatal "${__ghhtml} is missing or empty, or 404'ed on ${__gh} (see -G)"
+  [ ! -f "${__ghhtml}" ] || [ ! -s "${__ghhtml}" ] || [[ "${_htcode}" =~ ^4[[:digit:]]{2} ]] &&
+    _info "$(mv -v -f "${__ghhtml}" "${__ghhtml}.NG")" &&
+    _fatal "${__gh} was not accessible (see -G parameter and access rights, (${_htcode}))"
 
   if grep -q Bad\ credentials "${__ghhtml}"; then _fatal "${__ghhtml} bad GITHUB_AUTH_TOKEN credentials"; fi
 
@@ -5816,11 +5817,9 @@ check_runtime()
   _ossf_scorecard_ver="$($("${_useDocker}" && echo docker run --rm) "${_OSSFSC}" version 2>&1 | grep GitVersion | cut -d: -f2 | sed 's/ //g')"
   [[ -z "${_ossf_scorecard_ver}" ]] && _warn "could not determine OSSF/Scorecard version" && _ossf_scorecard_ver="${__NOASSERTION__}"
 
-  _info="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" ready)"
-  _mitre_hipcheck_ver="$(grep -o -E '(hipcheck ([[:alnum:]][. ]*)+)' <<<"${_info}" | sed 's/hipcheck //g')"
+  _info="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" --version)"
+  _mitre_hipcheck_ver="$(grep -o -E '([Hh]ipcheck ([[:alnum:]][. ]*)+)' <<<"${_info}" | sed 's/hipcheck //gi')"
   [[ -z "${_mitre_hipcheck_ver}" ]] && _warn "could not determine MITRE Hipcheck version" && _mitre_hipcheck_ver="${__NOASSERTION__}"
-  _MITRHCcache="$(grep -o -E '(Cache Path:[[:space:]]+(/[[:alnum:]_.]+)+)' <<<"${_info}"|sed 's/Cache Path://g;s/[[:space:]]*//g')"
-  [[ -z "${_MITRHCcache}" ]] && _fatal "could not determine MITRE Hipcheck cache folder" && _MITRHCcache=""
   # assume latest
   # --quiet 3.1.x thru 3.2.1 otherwise '--verbosity quiet' 3.3.0 onward
   # --json 3.1.x thru 3.2.1 otherwise '--format json' 3.3.0 onward
@@ -5831,12 +5830,17 @@ check_runtime()
   _MITRHCnewSchemaVersion="3.12.0"
   case "${_mitre_hipcheck_ver}" in
     3.1.*|3.2.*)
+       _MITRHCcache="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" --print-home)"
        _MITRHCquiet="${_MITRHCquiet/verbosity /}"
        _MITRHCjson="${_MITRHCjson/format /}"
        _MITRHCrepoCmd="${_MITRHCrepoCmd/check/check repo}"
        ;;
-    *) ;;
+    *)
+       _MITRHCcache="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" --print-home true)"
+       ;;
   esac
+
+  [[ -z "${_MITRHCcache}" ]] && _fatal "could not determine MITRE Hipcheck cache folder" && _MITRHCcache=""
 
   "${_doPhylum}" && { _phylum_ver="$(phylum --version | cut -d\  -f2)"
   [[ -z "${_phylum_ver}" ]] && _warn "could not determine Phylum CLI version" && _phylum_ver="${__NOASSERTION__}"; }
@@ -6958,9 +6962,8 @@ _run_scir_plugins()
     _fn=${_x}_run
     [[ -n "$(command -v "${!_fn}")" ]] && {
       ${!_fn} "${1}" "${2}" "${3}" "${4}";
-#      _fn=${_x}_detailreport
       _fn=${_fn/_run/_detailreport}
-      [[ -f "${!_fn}" ]] && _debug "${_x}: generated a detail report in ${!_fn}"
+      [[ -f "${!_fn}" ]] && _info "${_x}: generated a detail report in ${!_fn}"
     }
   done < <(tr ' ' '\n' <<<"${scir_plugins[@]}")
 
@@ -7202,6 +7205,7 @@ while getopts "c:d:f:hi:lopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
            [[ "${dependency_src}" =~ : ]] && puri="${dependency_src}"
            ;;
          *)
+           _fatal "expecting dependency type 'sbom' or 'phylum' but found: '${dependency_src/*:/}'"
            ;;
        esac
        ;;

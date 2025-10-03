@@ -9,6 +9,8 @@ declare -g _p_PABANDONTer_checkname="TertiaryProjectsAbandoned"
 
 declare -g -a _p_PABANDONhits
 
+declare -g _p_PABANDONrepo
+
 #
 # lifecycle main -> involkes init -> -> cache -> run -> report in that order
 #
@@ -117,6 +119,8 @@ _p_pAbandon_run()
 
   _ghapijson="${2}_ghapi.json"
 
+  _p_PABANDONrepo="${2}"
+
   _say -n "Counting abandoned projects..."
 
   MYcheckScores["${_p_PABANDON_checkname}"]="$(jq -r '.archived' "${_ghapijson}")"
@@ -172,7 +176,7 @@ _p_pAbandon_report()
   _ptxt="is not"
   [[ "${MYcheckScores["${_p_PABANDON_checkname}"]}" == "true" ]] && _ptxt="is"
 
-  _ptxt="${component} $(_fotp "${MYcheckScores["${_p_PABANDON_checkname}"]}" "${MYcheckThresholds["${_p_PABANDON_checkname}"]}")${_ptxt} archived; "
+  _ptxt="${_p_PABANDONrepo} $(_fotp "${MYcheckScores["${_p_PABANDON_checkname}"]}" "${MYcheckThresholds["${_p_PABANDON_checkname}"]}")${_ptxt} archived; "
 
   _dtxt="$(_fotp "${__NAN__}")primary dependencies were not checked. (see -D); "
   [[ ! "${MYcheckScores["${_p_PABANDONDep_checkname}"]}" = "${__NAN__}" ]] && _dtxt="$(_fotp "${MYcheckScores["${_p_PABANDONDep_checkname}"]}" "${MYcheckThresholds["${_p_PABANDONDep_checkname}"]}" "gt")${MYcheckScores["${_p_PABANDONDep_checkname}"]} of the primary dependencies are abandoned; "
@@ -191,7 +195,7 @@ _p_pAbandon_report()
 
 #
 # only loads if specifically set to true (no quotes)
-# must match pattern '^[[:space:]]*crink_enabled=true[[:space:]]*$'
+# must match pattern '^[[:space:]]*pAbandon_enabled=true[[:space:]]*$'
 #
 pAbandon_enabled=true
 
