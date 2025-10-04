@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 250918 (branch: publicRelease)"
+readonly _version="pubRel 251003 (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -231,7 +231,7 @@ declare -A PFourProjectChecks=( \
   [SCscore]="Code-Review CI-Tests CII-Best-Practices Contributors Fuzzing Maintained SAST" \
   [HCscore]="Activity Identity Affiliation Fuzz Review" \
   [PHYscore]="author" \
-  [MYscore]="AnonymousAuthor ProjectForked ProblemReporting DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
+  [MYscore]="ProjectForked DepProjectsForked TertiaryProjectsForked" \
   )
 
 declare -A PFourProjectScores=( \
@@ -334,7 +334,7 @@ declare -A CIOlongTermChecks=( \
   [SCscore]="Contributors Maintained CII-Best-Practices Security-Policy" \
   [HCscore]="Activity" \
   [PHYscore]="${__NOCHECK__}" \
-  [MYscore]="ProjectForked ProblemReporting DepProjectsForked TertiaryProjectsForked ProjectAbandoned DepProjectsAbandoned TertiaryProjectsAbandoned" \
+  [MYscore]="ProjectForked DepProjectsForked TertiaryProjectsForked" \
   )
 
 declare -A CIOlongTermScores=( \
@@ -434,7 +434,7 @@ declare -A CIOmalActorsChecks=( \
   [SCscore]="${__NOCHECK__}" \
   [HCscore]="Affiliation" \
   [PHYscore]="author" \
-  [MYscore]="AnonymousAuthor SanctionedAuthor" \
+  [MYscore]="${__NOCHECK__}" \
   )
 
 declare -A CIOmalActorsScores=( \
@@ -459,7 +459,7 @@ declare -A CIOsuitabilityChecks=( \
   [SCscore]="License" \
   [HCscore]="${__NOCHECK__}" \
   [PHYscore]="license" \
-  [MYscore]="ProjectRestrictiveLicense DepProjectsRestrictiveLicense TertiaryProjectsRestrictiveLicense" \
+  [MYscore]="SanctionedAuthor ProjectRestrictiveLicense DepProjectsRestrictiveLicense TertiaryProjectsRestrictiveLicense" \
   )
 
 declare -A CIOsuitabilityScores=( \
@@ -624,32 +624,22 @@ declare -A PHYcheckWeights=( \
 declare -A MYcheckScores=( \
   [UnfixedVulnerabilities]="${__NAN__}" \
   [ProjectForked]="false" \
-  [ProblemReporting]="false" \
   [DepProjectsForked]="${__NAN__}" \
   [TertiaryProjectsForked]="${__NAN__}" \
-  [ProjectAbandoned]="false" \
-  [DepProjectsAbandoned]="0" \
-  [TertiaryProjectsAbandoned]="${__NAN__}" \
   [ProjectRestrictiveLicense]="${__NAN__}" \
   [DepProjectsRestrictiveLicense]="${__NAN__}" \
   [TertiaryProjectsRestrictiveLicense]="${__NAN__}" \
-  [AnonymousAuthor]="0" \
   [SanctionedAuthor]="0" \
   )
 
 declare -A MYcheckLabels=( \
   [UnfixedVulnerabilities]="Unfixed Vuls" \
   [ProjectForked]="Project Forked" \
-  [ProblemReporting]="Problem Reporting" \
   [DepProjectsForked]="Dependent Projects Forked" \
   [TertiaryProjectsForked]="Other Projects Forked" \
-  [ProjectAbandoned]="Project Abandoned" \
-  [DepProjectsAbandoned]="Dependent Projects Abandoned" \
-  [TertiaryProjectsAbandoned]="Other Projects Abandoned" \
   [ProjectRestrictiveLicense]="Restrictive License(s)" \
   [DepProjectsRestrictiveLicense]="Dependent Restrictive License(s)" \
   [TertiaryProjectsRestrictiveLicense]="Other Restrictive License(s)" \
-  [AnonymousAuthor]="Anonymous Author" \
   [SanctionedAuthor]="Sanctioned Author" \
   )
 
@@ -658,40 +648,40 @@ declare -A MYcheckLabels=( \
 declare -A MYcheckWeights=( \
   [UnfixedVulnerabilities]="${SCcritical}" \
   [ProjectForked]="${SCcritical}" \
-  [ProblemReporting]="${SCcritical}" \
   [DepProjectsForked]="${SCmedium}" \
   [TertiaryProjectsForked]="${SClow}" \
-  [ProjectAbandoned]="${SCcritical}" \
-  [DepProjectsAbandoned]="${SChigh}" \
-  [TertiaryProjectsAbandoned]="${SClow}" \
   [ProjectRestrictiveLicense]="${SCcritical}" \
   [DepProjectsRestrictiveLicense]="${SChigh}" \
   [TertiaryProjectsRestrictiveLicense]="${SClow}" \
-  [AnonymousAuthor]="${SClow}" \
   [SanctionedAuthor]="${SCcritical}" \
   )
 
 declare -A MYcheckThresholds=( \
   [UnfixedVulnerabilities]="0" \
   [ProjectForked]="false" \
-  [ProblemReporting]="true" \
   [DepProjectsForked]="0" \
   [TertiaryProjectsForked]="0" \
-  [ProjectAbandoned]="false" \
-  [DepProjectsAbandoned]="0" \
-  [TertiaryProjectsAbandoned]="0" \
   [ProjectRestrictiveLicense]="0" \
   [DepProjectsRestrictiveLicense]="0" \
   [TertiaryProjectsRestrictiveLicense]="0" \
-  [AnonymousAuthor]="0" \
   [SanctionedAuthor]="0" \
   )
+
+#
+# these are advisory checks
+# will not generate a redFlag but a warning
+# value is the test (lt, gt, le, ge) of value to threshold
+#   warning is emitted if value "test" threshold is true
+#   (normally a redFlag would be emitted)
+# normally used by plugins
+#
+declare -A advisoryChecks=( \
+  [MYcheck:dummy]="gt"
+)
 
 declare -A foundLicenses
 
 declare -A licenseChecks
-
-declare -A ANONYhits
 
 declare -A SDNhits
 
@@ -1766,14 +1756,13 @@ $(_wwwhtml_wrapper_start)
              do
                [[ "${__NOCHECK__}" == "${_check}" ]] && break
                [[ "${__CHECKNOTIMPL__}" == "${_sarray[${_check}]}" ]] || [[ -z "${_sarray[${_check}]}" ]] && continue
-               case "${_check}" in
-                 AnonymousAuthor)
-                   _wflag="--warnFlag"
-                   ;;
-                 *)
-                   _wflag=""
-                   ;;
-               esac
+               #
+               # support advisory warnings in summary
+               # assumes all checks are unique
+               # TODO: remove the unique assumption
+               #
+               _wflag=""
+               [[ -n "${advisoryChecks["${_check}"]}" ]] && _wflag="--warnFlag" && _tt="${advisoryChecks["${_check}"]}"
                # need _wflag to not be an arg if unset
                # shellcheck disable=2086
                echo -n "$(_fotp ${_wflag} "${_sarray["${_check}"]}" "${_tarray["${_check}"]}" "${_tt}")${_larray[${_check}]}($(_fppp "${_fp}" "${_sarray[${_check}]}")/${_tarray[${_check}]})<br/>"
@@ -1879,18 +1868,6 @@ _user_org()
     sed 's/&quot;/"/g;s/,,/,Not Reported,/g;s/""/"Not Reported"/g;s/"//g;s/:,/: /g;s/,/, /g' | iconv -c -f utf-8 -t ascii)
 
   echo "${_ot}<p/>Details: ${_od//, /<br\/>}"
-  return
-}
-
-_abandoned_prjs()
-{
-  local _ptxt
-
-  _ptxt="is not"
-  [[ "${MYcheckScores[ProjectAbandoned]}" == "true" ]] && _ptxt="is"
-
-  echo "${1/_ghapi.json/} $(_fotp "${MYcheckScores[ProjectAbandoned]}" "${MYcheckThresholds[ProjectAbandoned]}")${_ptxt} archived; $(_fotp "${MYcheckScores[DepProjectsAbandoned]}" "${MYcheckThresholds[DepProjectsAbandoned]}" "gt")${MYcheckScores[DepProjectsAbandoned]} of the primary dependencies are abandoned; $(_fotp "-1")tertiary (other) dependencies are not checked at this time"
-
   return
 }
 
@@ -4274,9 +4251,6 @@ _run_mychecks()
       ProjectForked)
         MYcheckScores["${check}"]="$(jq -rj '.fork' "${1}")"
         ;;
-      ProblemReporting)
-        MYcheckScores["${check}"]="$(jq -rj '.has_issues' "${1}")"
-        ;;
       DepProjectsForked)
         #
         # TODO: pull all dep.d repos from GHAPI
@@ -4290,29 +4264,6 @@ _run_mychecks()
         # TODO: pull all subdep.d repos from GHAPI
         #       to set this correctly, perhaps
         #       subdeps.d/.../<name>_ghapi.json
-        #
-        MYcheckScores["${check}"]="${__CHECKNOTIMPL__}"
-        ;;
-      ProjectAbandoned)
-        MYcheckScores["${check}"]="$(jq -r '.archived' "${1}")"
-        ;;
-      DepProjectsAbandoned)
-        _say -n "Counting abandoned projects..."
-        #
-        # scorecard 5.0 changed the "reason" check for both
-        #
-        MYcheckScores["${check}"]="$(find ./deps.d/ -name \*sc.json -print0 | \
-          xargs -0 grep -E '(repo is marked as archived|project is archived)' | cut -d: -f1|wc -l)"
-        _say "abandoned projects counting done."
-        ;;
-      TertiaryProjectsAbandoned)
-        #
-        # TODO: add this after scorecard and hipcheck are run on
-        # tertiary dependencies (subdep.d)
-        #
-        # are any of the tertiary dependencies abandoned (med)
-        #_tarchived="$(find ./subdeps.d/ -name \*sc.json -print0 | \
-        #  xargs -0 grep "repo is marked as archived" | cut -d: -f1|wc -l)"
         #
         MYcheckScores["${check}"]="${__CHECKNOTIMPL__}"
         ;;
@@ -4345,9 +4296,6 @@ _run_mychecks()
         MYcheckScores["${check}"]="${__CHECKNOTIMPL__}"
         #MYcheckScores["${check}"]="$(_find_restrictive_licenses --tertiary)"
         ;;
-      AnonymousAuthor)
-        MYcheckScores["${check}"]="${#ANONYhits[@]}"
-        ;;
       SanctionedAuthor)
         # computed in detect_sdn
         # can't do this here (yet)
@@ -4359,6 +4307,9 @@ _run_mychecks()
     esac
   done
 
+  #_say -n "running plugins..."
+  _run_scir_plugins "${component}" "$(basename "${gh_site}")" "" ""
+  #_say OK
   _say "MY specific checks done"
   return
 }
@@ -5028,25 +4979,7 @@ detect_sdn()
            . += { "committer":$EM, "repo":$RP }' "${1}")"
   done < "${__gitcontribcsv}"
 
-  while IFS=, read -r _repo _committer
-  do
-    ANONYhits["${_repo},${_committer}"]="{ \"committer\":\"${_committer}\", \"repo\": \"${_repo}\"}"
-    jq -r --arg EM "${_committer}" \
-      '.emails[]|select (.email_addr|IN($EM))|[.source,.confidence]|@csv' < "${1}"
-  done < "${__gitcontribcsv/contrib/unk_contrib}"
-
   _say "OK"
-
-  return 0
-}
-
-_anonyactors()
-{
-  local _msg
-
-  _msg=", no anonymous author(s) detected."
-  [[ ${MYcheckScores[AnonymousAuthor]} -gt ${MYcheckThresholds[AnonymousAuthor]} ]] && _msg=", detected anonymous author(s) $( jq -r '.|[.committer, .repo]|join(",")' <<<"${ANONYhits[@]}"|tr '\n' ';'|sed 's/;/; /g'|sed 's/; $//g' )"
-  echo "$(_fotp --warnFlag "${MYcheckScores[AnonymousAuthor]}" "${MYcheckThresholds[AnonymousAuthor]}" "gt")${MYcheckScores[AnonymousAuthor]}/${MYcheckThresholds[AnonymousAuthor]}${_msg}"
 
   return 0
 }
@@ -5107,6 +5040,7 @@ _phy_prj_cache()
 #
 build_caches()
 {
+  local _htcode
   ${blockNetwork} && _warn "Offline mode, cache updates, skipped" && return 0
 
   #########
@@ -5117,21 +5051,28 @@ build_caches()
     _say -n "forced clearing GH html..."
     rm -f "${__ghhtml}"
   fi
+  #
+  # if this exists from a prior
+  # run - remove it now as likely
+  # no needed
+  #
+  rm -f "${__ghhtml}.NG"
 
   ${__ghSKIP} && echo "<html></html>" > "${__ghhtml}"
 
   [ ! -f "${__ghhtml}" ] && _say -n "building GH html..." &&
     {
-      curl --silent \
+      _htcode="$(curl --silent --write-out "%{http_code}" \
         -H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}" \
         -H "Accept: application/vnd.github+json" "${__gh}" \
-        -o "${__ghhtml}" \
+        -o "${__ghhtml}")" \
     ||
       _fatal "gh html pre-cache failed.";
     };
 
-  [ ! -f "${__ghhtml}" ] || [ ! -s "${__ghhtml}" ] &&
-    _fatal "${__ghhtml} is missing or empty"
+  [ ! -f "${__ghhtml}" ] || [ ! -s "${__ghhtml}" ] || [[ "${_htcode}" =~ ^4[[:digit:]]{2} ]] &&
+    _info "$(mv -v -f "${__ghhtml}" "${__ghhtml}.NG")" &&
+    _fatal "${__gh} was not accessible (see -G parameter and access rights, (${_htcode}))"
 
   if grep -q Bad\ credentials "${__ghhtml}"; then _fatal "${__ghhtml} bad GITHUB_AUTH_TOKEN credentials"; fi
 
@@ -5308,6 +5249,12 @@ build_caches()
   [[ "${dependency_type}" == "${__PHYLUM__}" ]] && {
     _phy_prj_cache
   }
+
+  #########
+  # pre-cache for plugins
+  _say -n "checking plugin caches..."
+  _cache_scir_plugins
+  _say OK
 
   return
 }
@@ -5876,11 +5823,9 @@ check_runtime()
   _ossf_scorecard_ver="$($("${_useDocker}" && echo docker run --rm) "${_OSSFSC}" version 2>&1 | grep GitVersion | cut -d: -f2 | sed 's/ //g')"
   [[ -z "${_ossf_scorecard_ver}" ]] && _warn "could not determine OSSF/Scorecard version" && _ossf_scorecard_ver="${__NOASSERTION__}"
 
-  _info="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" ready)"
-  _mitre_hipcheck_ver="$(grep -o -E '(hipcheck ([[:alnum:]][. ]*)+)' <<<"${_info}" | sed 's/hipcheck //g')"
+  _info="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" --version)"
+  _mitre_hipcheck_ver="$(grep -o -E '([Hh]ipcheck ([[:alnum:]][. ]*)+)' <<<"${_info}" | sed 's/hipcheck //gi')"
   [[ -z "${_mitre_hipcheck_ver}" ]] && _warn "could not determine MITRE Hipcheck version" && _mitre_hipcheck_ver="${__NOASSERTION__}"
-  _MITRHCcache="$(grep -o -E '(Cache Path:[[:space:]]+(/[[:alnum:]_.]+)+)' <<<"${_info}"|sed 's/Cache Path://g;s/[[:space:]]*//g')"
-  [[ -z "${_MITRHCcache}" ]] && _fatal "could not determine MITRE Hipcheck cache folder" && _MITRHCcache=""
   # assume latest
   # --quiet 3.1.x thru 3.2.1 otherwise '--verbosity quiet' 3.3.0 onward
   # --json 3.1.x thru 3.2.1 otherwise '--format json' 3.3.0 onward
@@ -5891,12 +5836,17 @@ check_runtime()
   _MITRHCnewSchemaVersion="3.12.0"
   case "${_mitre_hipcheck_ver}" in
     3.1.*|3.2.*)
+       _MITRHCcache="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" --print-home)"
        _MITRHCquiet="${_MITRHCquiet/verbosity /}"
        _MITRHCjson="${_MITRHCjson/format /}"
        _MITRHCrepoCmd="${_MITRHCrepoCmd/check/check repo}"
        ;;
-    *) ;;
+    *)
+       _MITRHCcache="$($("${_useDocker}" && echo docker run --rm) "${_MITRHC}" --print-home true)"
+       ;;
   esac
+
+  [[ -z "${_MITRHCcache}" ]] && _fatal "could not determine MITRE Hipcheck cache folder" && _MITRHCcache=""
 
   "${_doPhylum}" && { _phylum_ver="$(phylum --version | cut -d\  -f2)"
   [[ -z "${_phylum_ver}" ]] && _warn "could not determine Phylum CLI version" && _phylum_ver="${__NOASSERTION__}"; }
@@ -5966,6 +5916,11 @@ check_runtime()
     _err "cache days setting is numeric: ${_cache_days} is non-numeric" &&
     _rc=1
   fi
+
+  _say -n "loading & initializing plugins..."
+  _load_scir_plugins "${_OSSSCIRsettings}/scir-oss/plugins"
+  _init_scir_plugins
+  _say OK
 
   return ${_rc}
 }
@@ -6222,6 +6177,7 @@ _compile_json_p4report()
    "description": "${_LOCAL_SECTION___SECURITY_DESC}",
    "risk": "${_LOCAL_SECTION___SECURITY_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___SECURITY_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_TRUSTED_SOURCE_ID}",
    "value": "Source: ${__gh}<br/>${_LOCAL_TRUSTED_SOURCE_NAME_LABEL} Availability: Manual<br/>Repo or Mirror: Manual",
@@ -6309,6 +6265,7 @@ _phylumeof
    "description": "${_LOCAL_VULN_CHECK_DESC}",
    "risk": "${_LOCAL_VULN_CHECK_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___SECURITY_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___INTEGRITY_ID}",
    "value": "${__SECTION__}",
@@ -6316,6 +6273,7 @@ _phylumeof
    "description": "${_LOCAL_SECTION___INTEGRITY_DESC}",
    "risk": "${_LOCAL_SECTION___INTEGRITY_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___INTEGRITY_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_CONDUCT_PEER_REVIEWS_ID}",
    "value": "$(_peer_reviews "${_SCcard}" "${_HCcard}")",
@@ -6351,6 +6309,7 @@ _phylumeof
    "description": "${_LOCAL_CRYPTO_SIGNED_RELEASES_ARTIFACTS_DESC}",
    "risk": "${_LOCAL_CRYPTO_SIGNED_RELEASES_ARTIFACTS_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___INTEGRITY_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___DEPENDENCIES_ID}",
    "value": "${__SECTION__}",
@@ -6358,6 +6317,7 @@ _phylumeof
    "description": "${_LOCAL_SECTION___DEPENDENCIES_DESC}",
    "risk": "${_LOCAL_SECTION___DEPENDENCIES_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___DEPENDENCIES_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_SBOM_ID}",
    "value": "$(_sbom_val "$({ [[ "${dependency_type}" == "${__PHYLUM__}" ]] && echo "${__ghrsbomjson}"; } || echo "${dependency_src}")")<br/>Language package managers detected: $(_sbom_pkgs "${__component_prjs}")",
@@ -6393,6 +6353,7 @@ _phylumeof
    "description": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_PROPRIETARY_DESC}",
    "risk": "${_LOCAL_DEPENDENCIES_NUMBER_PRIMARY_OTHER_PROPRIETARY_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___DEPENDENCIES_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}",
    "value": "${__SECTION__}",
@@ -6400,20 +6361,7 @@ _phylumeof
    "description": "${_LOCAL_SECTION___MALICIOUS_ACTORS_DESC}",
    "risk": "${_LOCAL_SECTION___MALICIOUS_ACTORS_RISK}"
  },
- {
-   "id": "${_LOCAL_ANONYMOUS_AUTHOR_ID}",
-   "value": "$(_anonyactors "${__ghrcommitjson}")",
-   "label": "${_LOCAL_ANONYMOUS_AUTHOR_LABEL}",
-   "description": "${_LOCAL_ANONYMOUS_AUTHOR_DESC}",
-   "risk": "${_LOCAL_ANONYMOUS_AUTHOR_RISK}"
- },
- {
-   "id": "${_LOCAL_SANCTIONED_AUTHOR_ID}",
-   "value": "$(_sdnactors "${__ghrcommitjson}")",
-   "label": "${_LOCAL_SANCTIONED_AUTHOR_LABEL}",
-   "description": "${_LOCAL_SANCTIONED_AUTHOR_DESC}",
-   "risk": "${_LOCAL_SANCTIONED_AUTHOR_RISK}"
- },
+$(_report_scir_plugins "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_BAD_AUTHOR_VULS_ID}",
    "value": "Manual",
@@ -6428,6 +6376,7 @@ _phylumeof
    "description": "${_LOCAL_BAD_AUTHOR_MALICIOUS_DESC}",
    "risk": "${_LOCAL_BAD_AUTHOR_MALICIOUS_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___MALICIOUS_ACTORS_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}",
    "value": "${__SECTION__}",
@@ -6435,6 +6384,7 @@ _phylumeof
    "description": "${_LOCAL_SECTION___LONG_TERM_SUPPORT_DESC}",
    "risk": "${_LOCAL_SECTION___LONG_TERM_SUPPORT_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_PROJECT_BACKGROUND_REPRISE_ID}",
    "value": "$(_background "${__ghrjson}")",
@@ -6471,13 +6421,6 @@ _phylumeof
    "risk": "${_LOCAL_BEST_PRACTICES_RISK}"
  },
  {
-   "id": "${_LOCAL_ABANDONED_PROJECTS_ID}",
-   "value": "$(_abandoned_prjs "${__ghrjson}")",
-   "label": "${_LOCAL_ABANDONED_PROJECTS_LABEL}",
-   "description": "${_LOCAL_ABANDONED_PROJECTS_DESC}",
-   "risk": "${_LOCAL_ABANDONED_PROJECTS_RISK}"
- },
- {
    "id": "${_LOCAL_OSSF_CRIT_SCORE_ID}",
    "value": "$(_criticality_score "${_CScard}") (higher's better)",
    "label": "${_LOCAL_OSSF_CRIT_SCORE_LABEL}",
@@ -6498,20 +6441,15 @@ _phylumeof
    "description": "${_LOCAL_CORE_CONTRIB_MAINTAINER_COUNT_DESC}",
    "risk": "${_LOCAL_CORE_CONTRIB_MAINTAINER_COUNT_RISK}"
  },
- {
-   "id": "${_LOCAL_PROBLEM_REPORTING_PROCESS_ID}",
-   "value": "$(_problem_reporting "${__ghrjson}")",
-   "label": "${_LOCAL_PROBLEM_REPORTING_PROCESS_LABEL}",
-   "description": "${_LOCAL_PROBLEM_REPORTING_PROCESS_DESC}",
-   "risk": "${_LOCAL_PROBLEM_REPORTING_PROCESS_RISK}"
- },
- {
+$(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}" "${__REPORT__SECTION__HERE__}")
+{
    "id": "${_LOCAL_VUL_REPORTING_PROCESS_ID}",
    "value": "$(_vulsec_reporting "${_SCcard}")",
    "label": "${_LOCAL_VUL_REPORTING_PROCESS_LABEL}",
    "description": "${_LOCAL_VUL_REPORTING_PROCESS_DESC}",
    "risk": "${_LOCAL_VUL_REPORTING_PROCESS_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___LONG_TERM_SUPPORT_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___SUITABILITY_ID}",
    "value": "${__SECTION__}",
@@ -6519,6 +6457,7 @@ _phylumeof
    "description": "${_LOCAL_SECTION___SUITABILITY_DESC}",
    "risk": "${_LOCAL_SECTION___SUITABILITY_RISK}"
  },
+$(_report_scir_plugins "${_LOCAL_SECTION___SUITABILITY_ID}" "${__REPORT__SECTION__HEAD__}")
  {
    "id": "${_LOCAL_LICENSE_NAME_ID}",
    "value": "$(_license_name "${__ghrjson}" | sed 's^ SPDX_ID^<br/>SPDX_ID^g')",
@@ -6533,6 +6472,14 @@ _phylumeof
    "description": "${_LOCAL_LICENSE_RISK_DESC}",
    "risk": "${_LOCAL_LICENSE_RISK_RISK}"
  },
+ {
+   "id": "${_LOCAL_SANCTIONED_AUTHOR_ID}",
+   "value": "$(_sdnactors "${__ghrcommitjson}")",
+   "label": "${_LOCAL_SANCTIONED_AUTHOR_LABEL}",
+   "description": "${_LOCAL_SANCTIONED_AUTHOR_DESC}",
+   "risk": "${_LOCAL_SANCTIONED_AUTHOR_RISK}"
+ },
+$(_report_scir_plugins "${_LOCAL_SECTION___SUITABILITY_ID}" "${__REPORT__SECTION__TAIL__}")
  {
    "id": "${_LOCAL_SECTION___REPORT_METADATA_ID}",
    "value": "${__SECTION__}",
@@ -6929,6 +6876,150 @@ _set_bldFlags()
   return 0
 }
 
+#
+# plugin interface
+#
+declare -A scir_plugins
+
+#
+# hints to control where plugin reports
+# should be emitted in report output
+#
+# near the beginning of a section
+readonly __REPORT__SECTION__HEAD__="__RHEAD__"
+# anywhere in a section
+readonly __REPORT__SECTION__HERE__="__RHERE__"
+# near the end of a section
+readonly __REPORT__SECTION__TAIL__="__RTAIL__"
+
+#
+# arguments
+# 1: FQ Path for the plugins folder from which to source plugins
+#
+_load_scir_plugins()
+{
+  local _fn
+  local _bn
+  local _pn
+
+  while IFS= read -r _fn
+  do
+    [[ -f "${_fn}" ]] || \
+      { _warn "can't read ${_fn}, skipping..."; continue; }
+
+    _bn="$(basename "${_fn}")"
+    grep -q "^[[:space:]]*${_bn/_plugin.sh/}_enabled=true[[:space:]]*$" "${_fn}" || \
+      { _warn "plugin disabled ${_fn}, skipping..."; continue; }
+
+    # shellcheck disable=1090
+    source "${_fn}" || { _warn "can't source ${_fn}, skipping..."; continue; };
+
+    scir_plugins["${_bn/_plugin.sh/}"]=${_bn/_plugin.sh/}
+    _pn=${_bn/_plugin.sh/}_name
+
+    _say -n "${scir_plugins["${_bn/_plugin.sh/}"]}: (${!_pn}), "
+
+  done < <(find "${1}" -maxdepth 1 -type f -name \*_plugin.sh)
+
+  return 0
+}
+
+_init_scir_plugins()
+{
+  local _fn
+
+  while IFS= read -r _x
+  do
+    _fn=${_x}_init
+    [[ -n "$(command -v "${!_fn}")" ]] && ${!_fn}
+  done < <(tr ' ' '\n' <<<"${scir_plugins[@]}")
+
+  return 0
+}
+
+_cache_scir_plugins()
+{
+  local _fn
+
+  while IFS= read -r _x
+  do
+    _fn=${_x}_cache
+    [[ -n "$(command -v "${!_fn}")" ]] && ${!_fn}
+  done < <(tr ' ' '\n' <<<"${scir_plugins[@]}")
+
+  return 0
+}
+
+#
+# args are:
+#  1: "${component}" passed by -C as in 'oparest'
+#     this is the prefix for files generally created by OSS-P4/R
+#  2: "$(basename "${gh_site}")" basename as in 'opa-restful' as passed by -G as in 'go-training/opa-restful'
+#     this is the prefix for cache files from github API and git CLI
+#  3: (future reserved)
+#  4: (future reserved)
+#
+_run_scir_plugins()
+{
+  local _fn
+
+  while IFS= read -r _x
+  do
+    _fn=${_x}_run
+    [[ -n "$(command -v "${!_fn}")" ]] && {
+      ${!_fn} "${1}" "${2}" "${3}" "${4}";
+      _fn=${_fn/_run/_detailreport}
+      [[ -f "${!_fn}" ]] && _info "${_x}: generated a detail report in ${!_fn}"
+    }
+  done < <(tr ' ' '\n' <<<"${scir_plugins[@]}")
+
+  return 0
+}
+
+_report_scir_plugins()
+{
+  local _fn
+  local _sc
+  local _lo
+  local _id
+  local _label
+  local _desc
+  local _risk
+  local _section
+  local _position
+  local default_position
+
+  # shellcheck disable=2034
+  default_position="${__REPORT__SECTION__TAIL__}"
+  _section="${1}"
+  _position="${2}"
+  while IFS= read -r _x
+  do
+    _fn=${_x}_report
+    _sc=${_x}_section
+    _lo=${_x}_position
+
+    [[ -z "${!_lo}" ]] && _lo=default_position
+
+    [[ -n "$(command -v "${!_fn}")" ]] && \
+      [[  ${!_sc} = "${_section}" ]] && [[  ${!_lo} = "${_position}" ]] && {
+     _id=${_x}_id
+     _label=${_x}_label
+     _desc=${_x}_desc
+     _risk=${_x}_risk
+     echo "{"
+     echo "\"id\": \"${!_id}\",";
+     echo "\"value\": \"$(${!_fn})\",";
+     echo "\"label\": \"${!_label}\","
+     echo "\"description\": \"${!_desc}\","
+     echo "\"risk\": \"${!_risk}\""
+     echo "},"
+    }
+  done < <(tr ' ' '\n' <<<"${scir_plugins[@]}")
+
+  return 0
+}
+
 ###############################
 ###############################
 # __entrypoint__ ()
@@ -7120,6 +7211,7 @@ while getopts "c:d:f:hi:lopquvBC:D:G:L:OP:U:VW:Z:" opt; do #{
            [[ "${dependency_src}" =~ : ]] && puri="${dependency_src}"
            ;;
          *)
+           _fatal "expecting dependency type 'sbom' or 'phylum' but found: '${dependency_src/*:/}'"
            ;;
        esac
        ;;
