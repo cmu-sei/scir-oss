@@ -5051,6 +5051,12 @@ build_caches()
     _say -n "forced clearing GH html..."
     rm -f "${__ghhtml}"
   fi
+  #
+  # if this exists from a prior
+  # run - remove it now as likely
+  # no needed
+  #
+  rm -f "${__ghhtml}.NG"
 
   ${__ghSKIP} && echo "<html></html>" > "${__ghhtml}"
 
