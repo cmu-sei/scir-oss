@@ -172,6 +172,7 @@ $ ./scir-oss.sh publish -h
   -A:  Ancestor page title (default: 'Example OSS Supply Chain Reports')
   -B:  Download an attached Body of Evidence (default: name containing 'boe_sha256', ending with '.tgz')
   -C:  set local component name/project name (REQUIRED)
+  -D:  delete content page with Page Title (arg) in Space (-S) (interactive mode to confirm is enabled)
   -R:  Download an attached by a given name
   -S:  Space in Confluence (default: MYDOCS)
        for Confluence Personal Space use '~username'
