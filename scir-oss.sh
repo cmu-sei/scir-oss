@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 251003 (branch: publicRelease)"
+readonly _version="pubRel 251209 (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -5859,7 +5859,7 @@ check_runtime()
   # so ignore out of date errors at this step
   _grype_ver=""
   [[ -n "$(command -v "${_GRYPEC}")" ]] &&
-    _grype_ver="$({ "${_GRYPEC}" --version | cut -d\  -f2; GRYPE_DB_VALIDATE_AGE=false "${_GRYPEC}" db status -o json | jq -r '"db",.schemaVersion,"built on",.built' ; } | tr '\n' ' ')"
+    _grype_ver="$({ "${_GRYPEC}" --version | cut -d\  -f2; GRYPE_DB_VALIDATE_AGE=false "${_GRYPEC}" db status -o json 2>/dev/null | jq -r '"db",.schemaVersion,"built on",(if .built == null then "unknown" else .built end)' ; } | tr '\n' ' ')"
   [[ -z "${_grype_ver}" ]] && _warn "could not determine grype version (vul reports skipped)" && _grype_ver="${__NOASSERTION__}"
 
   #

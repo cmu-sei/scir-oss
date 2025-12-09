@@ -24,7 +24,7 @@
 # DM24-0786
 # 
  
-readonly _version="pubRel 250516evie (branch: publicRelease)"
+readonly _version="pubRel 251209 (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -114,6 +114,19 @@ _find_Conf_pageByTitle()
     | jq -r '.results[]|.content.id' | sed 's/^null$//g'
 
   return
+}
+
+_delete_Conf_page()
+{
+  ! _getyn "delete ${_pageTitle} (${1})" && echo "" && return 1
+
+  curl -k --silent --request DELETE \
+    --header 'Content-Type: application/json' \
+    --header 'Accept: application/json' \
+    --header "authorization: Bearer ${CONF_PAT}"  \
+    --url "${_CONFSVR}/rest/api/content/${1}?status=current"
+
+  return 0
 }
 
 _create_Conf_page()
@@ -359,7 +372,7 @@ _update_Conf_page()
     _warn "curl failed with ${?}"
     return 1
   else
-    [[ (( $(stat -c %s "${2}") < $(stat -c %s "${2}.resp") )) ]] && _say "update: ok" && return 0
+    [[ (( $(stat -c %s "${2}") < $(stat -c %s "${2}.resp") )) ]] && _say "update: ${_CONFSVR}/spaces/${_spaceKey}/pages/${1}/${_pageTitle} (ok)" && return 0
 
     [ -n "$(zcat "${2}.resp" | jq -j -r '.statusCode' | sed 's/null//g')" ] &&
       _warn "$(zcat "${2}.resp" | jq -j -r '.message')" && return 2
@@ -508,6 +521,7 @@ interactive="false"
 
 component=
 attachment=
+deletePage=false
 attachonly=false
 recoverBOE=false
 recoverFILE=""
@@ -544,7 +558,7 @@ _cmdline="${0} ${*}"
 # and local runtime constraints (binaries, containers, etc.)
 do_runtime_localizations "${_PUBSCIRsettings}"
 
-while getopts "a:hilopqvA:BC:R:S:T:V" opt; do #{
+while getopts "a:hilopqvA:BC:D:R:S:T:V" opt; do #{
   case $opt in
     a) attachment="${OPTARG}"
        [[ -s "${attachment}" ]] && attachment=$(realpath "${attachment}")
@@ -559,6 +573,10 @@ while getopts "a:hilopqvA:BC:R:S:T:V" opt; do #{
     A) _ancestorTitle="${OPTARG}" ;;
     B) recoverBOE="true" ;;
     C) component="${OPTARG}" ;;
+    D) deletePage="true"
+       component="."
+       _pageTitle="${OPTARG}"
+       interactive="true" ;;
     R) recoverFILE="${OPTARG}" ;;
     S) _spaceKey="${OPTARG}" ;;
     T) _pageTitle="${OPTARG}" ;;
@@ -579,6 +597,7 @@ while getopts "a:hilopqvA:BC:R:S:T:V" opt; do #{
   -A:  Ancestor page title (default: '${_DEFancestorTitle}')
   -B:  Download an attached Body of Evidence (default: name containing 'boe_sha256', ending with '.tgz')
   -C:  set local component name/project name (REQUIRED)
+  -D:  delete content page with Page Title (arg) in Space (-S) (interactive mode to confirm is enabled)
   -R:  Download an attached by a given name
   -S:  Space in Confluence (default: ${_DEFspaceKey})
        for Confluence Personal Space use '~username'
@@ -640,17 +659,31 @@ mkdir -p logs/
 #
 # this log file will be moved later before exit/popd.
 #
-[[ -n "${__logfil}" ]] && mv -f "${_rp}" "."
+# NB: deletePage (-D) does not need (-C) and therefore
+#     sets the component working dir to '.', do don't move
+#
+! ${deletePage} && [[ -n "${__logfil}" ]] && mv -f "${_rp}" "."
 
 _outfileCache=${component}-vUNK.json
 
 _createFlag=""
-{ ${recoverBOE} || [[ -n "${recoverFILE}" ]]; } && _createFlag="--nocreate"
+{ ${deletePage} || ${recoverBOE} || [[ -n "${recoverFILE}" ]]; } && _createFlag="--nocreate"
 
 if ! _pageId="$(_get_Conf_page ${_createFlag} "${_spaceKey}" "${_pageTitle}" "${_outfileCache}")"; then
   _fatal "page not found"
 fi
 _say "got pageId=${_pageId} with rc=${?}"
+
+${deletePage} && {
+  _say "Deleting content page \"${_pageTitle}\" from \"${_spaceKey}\" using \"${_pageId}\""
+  if ! _delete_Conf_page "${_pageId}"; then
+    _fatal "delete failed"
+  fi;
+  _say "done."
+    [[ -n "${__logfil}" ]] && mv -f "${__logfil}" "./logs/"
+    popd >&"${_fdverbose}" || exit
+    exit 0;
+}
 
 ${attachonly} && [[ -n "${attachment}" ]] && {
     _say "Only uploading attachment ${attachment}";
