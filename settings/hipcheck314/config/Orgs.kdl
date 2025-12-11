@@ -1,0 +1,28 @@
+strategy "affiliated" {
+    country "Canada"
+    country "United States"
+    country "Education"
+    country "Mexico"
+}
+
+orgs {
+    org "Any Canada" country="Canada" {
+      host ".ca"
+    }
+    org "CN" country="Canada" {
+      host "cn.ca"
+    }
+    org "Any United States" country="United States" {
+      host ".us"
+    }
+    org "US states" country="United States" {
+      host "ca.us"
+      host "tx.us"
+    }
+    org "Any Education" country="Education" {
+      host ".edu"
+    }
+    org "Any Mexico" country="Mexico" {
+      host ".mx"
+    }
+}

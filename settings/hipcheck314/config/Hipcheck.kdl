@@ -1,0 +1,20 @@
+plugins {
+    plugin "mitre/affiliation" version="0.5.2"         manifest="https://hipcheck.mitre.org/dl/plugin/mitre/affiliation.kdl"
+}
+patch {
+plugin "mitre/github" {
+api-token-var "HC_GITHUB_TOKEN"
+}
+}
+analyze {
+    investigate policy="(gt 0.5 $)"
+    investigate-if-fail "mitre/affiliation"
+
+    category "attacks" {
+        category "commit" {
+            analysis "mitre/affiliation" policy="(lte (count (filter (eq #t) $)) 0)" {
+                orgs-file #rel("Orgs.kdl")
+            }
+        }
+    }
+}

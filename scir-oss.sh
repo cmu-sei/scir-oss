@@ -30,7 +30,7 @@
 # bash exitpoint search down for _cleanup_and_exit (often rearchable from _fatal)
 #
 
-readonly _version="pubRel 251209 (branch: publicRelease)"
+readonly _version="pubRel 251211 (branch: publicRelease)"
 
 #
 # check_runtime will confirm these settings
@@ -181,12 +181,19 @@ function urldecode() { local i="${*//+/ }"; echo -ne "${i//%/\\x}" | tr -d '[:cn
 #
 
 #
-# confluence-specific HTML
+# confluence-specific HTML (report generation)
 #
 readonly __REDFLAG__="<ac:emoticon ac:name='cross'/>"
-readonly __REDSVGFLAG__='<svg width="16" height="16" viewBox="0 -0 100 100"><circle cx="50" cy="50" r="40" fill="red" /><path d="M30 30 L70 70" stroke="white" stroke-width="8" stroke-linecap="round"/><path d="M70 30 L30 70" stroke="white" stroke-width="8" stroke-linecap="round"/></svg>'
 readonly __WARNING__="<ac:emoticon ac:name='warning'/>"
-readonly __WARNINGSVG__='<svg width="16" height="16" viewBox="0 0 100 100"><path d="M50 10 L90 90 H10 Z" fill="yellow" stroke="black" stroke-width="4"/><line x1="50" y1="35" x2="50" y2="60" stroke="black" stroke-width="6" stroke-linecap="round"/><circle cx="50" cy="72" r="4" fill="black"/></svg>'
+readonly __INFORMATION__="<ac:emoticon ac:name='information'/>"
+
+#
+# HTML only equivs (report generation)
+#
+readonly __REDSVGFLAG__='<svg width="16" height="16"><circle fill="#DE350B" cx="8" cy="8" r="8"/><path d="M9.485 8.071l2.122 2.121a1 1 0 1 1-1.415 1.415l-2.12-2.122-2.122 2.122a1 1 0 1 1-1.414-1.415l2.12-2.12-2.12-2.122A1 1 0 1 1 5.95 4.536l2.121 2.12 2.121-2.12a1 1 0 1 1 1.415 1.414L9.485 8.07z" fill="#FFF"/></svg>'
+readonly __WARNINGSVG__='<svg width="16" height="16"><path d="M9.756 1.723l5.627 10.32A2 2 0 0 1 13.627 15H2.373a2 2 0 0 1-1.756-2.957l5.627-10.32a2 2 0 0 1 3.512 0z" fill="#FFC400"/><path d="M9 8.8c0 .662-.448 1.2-1 1.2s-1-.538-1-1.2V5.2C7 4.538 7.448 4 8 4s1 .538 1 1.2v3.6zM8 13a1 1 0 1 1 0-2 1 1 0 0 1 0 2z" fill="#253858"/></svg>'
+readonly __INFORMATIONSVG__='<svg width="16" height="16"><circle fill="#0052CC" cx="8" cy="8" r="8"/><g transform="translate(6 3)" fill="#FFF"><rect x="1" y="5" width="2" height="6" rx="1"/><rect x=".5" width="3" height="3" rx="1.5"/></g></svg>'
+
 readonly __SECTION__="<hr style='border: 10px solid gray; border-radius: 5px'/>"
 
 readonly __NULLGH__=":owner/:repo"
@@ -218,6 +225,7 @@ readonly SCcritical="10.0"
 readonly SChigh="7.5"
 readonly SCmedium="5.0"
 readonly SClow="2.5"
+readonly SCnone="0"
 readonly SCfail="-1"
 
 _HTMLcaveats=()
@@ -669,14 +677,15 @@ declare -A MYcheckThresholds=( \
 
 #
 # these are advisory checks
-# will not generate a redFlag but a warning
+# will not generate a redFlag decoration but a
+#   warning (:warn) or info (:info) decoration
 # value is the test (lt, gt, le, ge) of value to threshold
 #   warning is emitted if value "test" threshold is true
 #   (normally a redFlag would be emitted)
 # normally used by plugins
 #
 declare -A advisoryChecks=( \
-  [MYcheck:dummy]="gt"
+  [dummy:warn]="gt"
 )
 
 declare -A foundLicenses
@@ -719,6 +728,7 @@ _fotp()
   do
     [[ ${1} == --dblSpace ]] && _dblspace="&nbsp;&nbsp;"
     [[ ${1} == --warnFlag ]] && _flag="${__WARNING__}"
+    [[ ${1} == --infoFlag ]] && _flag="${__INFORMATION__}"
     shift 1
   done
 
@@ -1757,12 +1767,15 @@ $(_wwwhtml_wrapper_start)
                [[ "${__NOCHECK__}" == "${_check}" ]] && break
                [[ "${__CHECKNOTIMPL__}" == "${_sarray[${_check}]}" ]] || [[ -z "${_sarray[${_check}]}" ]] && continue
                #
-               # support advisory warnings in summary
+               # support advisory warning/infos in summary
                # assumes all checks are unique
                # TODO: remove the unique assumption
                #
                _wflag=""
-               [[ -n "${advisoryChecks["${_check}"]}" ]] && _wflag="--warnFlag" && _tt="${advisoryChecks["${_check}"]}"
+               [[ -n "${advisoryChecks["${_check}":warn]}" ]] &&
+                 _wflag="--warnFlag" && _tt="${advisoryChecks["${_check}":warn]}"
+               [[ -n "${advisoryChecks["${_check}":info]}" ]] &&
+                 _wflag="--infoFlag" && _tt="${advisoryChecks["${_check}":info]}";
                # need _wflag to not be an arg if unset
                # shellcheck disable=2086
                echo -n "$(_fotp ${_wflag} "${_sarray["${_check}"]}" "${_tarray["${_check}"]}" "${_tt}")${_larray[${_check}]}($(_fppp "${_fp}" "${_sarray[${_check}]}")/${_tarray[${_check}]})<br/>"
@@ -6054,9 +6067,9 @@ EOS
     # handle special cases (keep this one)
     [[ $id =~ Section___ ]] && _col2="____HRULE____"
 
-    _col2clean=$(sed "s^<ac:emoticon ac:name='warning'/>^(\!)^g;s^<ac:emoticon ac:name='cross'/>^(\x)^g;" <<<"${_col2}")
+    _col2clean=$(sed "s^${__INFORMATION__}^(\i)^g;s^${__WARNING__}^(\!)^g;s^${__REDFLAG__}^(\x)^g;" <<<"${_col2}")
     _ww__col2clean="${_col2clean}"
-    _ww__col2clean=$(sed "s^<ac:emoticon ac:name='warning'/>^${__WARNINGSVG__}^g;s^<ac:emoticon ac:name='cross'/>^${__REDSVGFLAG__}^g;" <<<"${_col2}")
+    _ww__col2clean=$(sed "s^${__INFORMATION__}^${__INFORMATIONSVG__}^g;s^${__WARNING__}^${__WARNINGSVG__}^g;s^${__REDFLAG__}^${__REDSVGFLAG__}^g;" <<<"${_col2}")
 
     case "${id}" in
       "${_LOCAL_OSSP4R_OUTLOOK_ID}" | "${_LOCAL_DODCIO_CRITERIA_ID}")

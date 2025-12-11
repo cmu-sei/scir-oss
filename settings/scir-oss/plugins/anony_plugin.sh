@@ -78,7 +78,7 @@ _p_anony_init()
 
   MYcheckThresholds[${_p_ANONY_checkname}]="0"
 
-  advisoryChecks[${_p_ANONY_checkname}]+="gt"
+  advisoryChecks[${_p_ANONY_checkname}:warn]+="gt"
 
   #
   # 0 success
@@ -137,7 +137,7 @@ _p_anony_report()
     _fotp --warnFlag \
       "${MYcheckScores[${_p_ANONY_checkname}]}" \
       "${MYcheckThresholds[${_p_ANONY_checkname}]}" \
-      "${advisoryChecks[${_p_ANONY_checkname}]}" \
+      "${advisoryChecks[${_p_ANONY_checkname}:warn]}" \
     )${MYcheckScores[${_p_ANONY_checkname}]}/${MYcheckThresholds[${_p_ANONY_checkname}]}${_msg}"
 
   return 0

@@ -3,7 +3,15 @@
 FROM node:bookworm-slim@sha256:dfb18d8011c0b3a112214a32e772d9c6752131ffee512e974e59367e46fcee52
 
 ARG HC_VERSION="3.4.0"
+ARG HC_VERSION_SHAPIN="3b954346fd7f556ad4fae194fb36c8b946fcae6cf8e67bbb03134ddf7e14ad33"
+ARG HC_AFFILIATION_VERSION="3.14.0"
+ARG HC_AFFILIATION_VERSION_SHAPIN="6213658e67237a1e5d37e31f80d371c523bb6cf85052ddbb015141ff9cc6d03e"
 ARG SC_VERSION="5.2.1"
+ARG SC_VERSION_SHAPIN="ae54ef0b3ecae4b2d0086a9f99cd44d5c0830e00a51aa0461981178ba4c29fcd"
+ARG PHYLUM_EXEC="/home/hc_user/.local/bin/phylum"
+ARG PHYLUM_SHAPIN="809fc876bb1c3aba7554a26b74ae53d908fb7b7e202eed8e4deaa22a02cfc6bc"
+ARG GRYPE_EXEC="/home/hc_user/.local/bin/grype"
+ARG GRYPE_SHAPIN="c833472c3d590cfc6861f948c21fd9f87350c663e0943ba0b35e278a88f94049"
 
 WORKDIR /app
 
@@ -31,18 +39,32 @@ RUN set -eux \
 RUN set -eux \
     && curl -sSfL https://github.com/mitre/hipcheck/releases/download/hipcheck-v${HC_VERSION}/hipcheck-x86_64-unknown-linux-gnu.tar.xz -o hipcheck-x86_64-unknown-linux-gnu.tar.xz \
     && curl -sSfL https://github.com/mitre/hipcheck/releases/download/hipcheck-v${HC_VERSION}/hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256 -o hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256 \
+    && [ "${HC_VERSION_SHAPIN}" = "$(cut -d\  -f1 <hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256)" ] \
     && sha256sum -c --strict hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256 --ignore-missing \
     && tar xf hipcheck-x86_64-unknown-linux-gnu.tar.xz --strip-components 1 -C ${HOME}/.local/bin/ hipcheck-x86_64-unknown-linux-gnu/hc \
     && rm -f hipcheck-x86_64-unknown-linux-gnu.tar.xz hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256
 
 #
-# installs phylum.io CLI (OSS-P4/R)
-#
-# the phylum script has a openssl verification step
-# to confirm the digital signature for said script
+# installs hipcheck used for Affiliation analysis
 #
 RUN set -eux \
-    && curl https://sh.phylum.io/ | sh -s -- --yes
+    && curl -sSfL https://github.com/mitre/hipcheck/releases/download/hipcheck-v${HC_AFFILIATION_VERSION}/hipcheck-x86_64-unknown-linux-gnu.tar.xz -o hipcheck-x86_64-unknown-linux-gnu.tar.xz \
+    && curl -sSfL https://github.com/mitre/hipcheck/releases/download/hipcheck-v${HC_AFFILIATION_VERSION}/hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256 -o hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256 \
+    && sha256sum -c --strict hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256 --ignore-missing \
+    && [ "${HC_AFFILIATION_VERSION_SHAPIN}" = "$(cut -d\  -f1 <hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256)" ] \
+    && tar xf hipcheck-x86_64-unknown-linux-gnu.tar.xz --strip-components 1 -C /tmp/ hipcheck-x86_64-unknown-linux-gnu/hc \
+    && mv -v /tmp/hc ${HOME}/.local/bin/hc-affiliation \
+    && rm -f hipcheck-x86_64-unknown-linux-gnu.tar.xz hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256
+
+#
+# installs phylum.io CLI (OSS-P4/R)
+#
+# the phylum script has a mandatory openssl verification step
+# to confirm the digital signature for downloaded archive
+#
+RUN set -eux \
+    && curl https://sh.phylum.io/ | sh -s -- --yes \
+    && [ "${PHYLUM_SHAPIN}" = "$(sha256sum ${PHYLUM_EXEC} | cut -d\  -f1)" ]
 
 #
 # installs grype (OSS-P4/R)
@@ -52,7 +74,8 @@ RUN set -eux \
 #
 #RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -v -b ${HOME}/.local/bin
 RUN set -eux \
-    && curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b ${HOME}/.local/bin
+    && curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b ${HOME}/.local/bin \
+    && [ "${GRYPE_SHAPIN}" = "$(sha256sum ${GRYPE_EXEC} | cut -d\  -f1)" ]
 
 #
 # installs scorecard and criticality_score (OSS-P4/R)
@@ -62,6 +85,7 @@ RUN set -eux \
     && curl -sSfL https://github.com/ossf/scorecard/releases/download/v${SC_VERSION}/scorecard_${SC_VERSION}_linux_amd64.tar.gz -o scorecard_${SC_VERSION}_linux_amd64.tar.gz \
     && curl -sSfL https://github.com/ossf/scorecard/releases/download/v${SC_VERSION}/scorecard_checksums.txt -o scorecard_checksums.txt \
     && sha256sum -c --strict scorecard_checksums.txt --ignore-missing \
+    && [ "${SC_VERSION_SHAPIN}" = "$(grep scorecard_${SC_VERSION}_linux_amd64.tar.gz scorecard_checksums.txt | cut -d\  -f1)" ] \
     && tar xfz scorecard_${SC_VERSION}_linux_amd64.tar.gz -C ${HOME}/.local/bin/ scorecard \
     && rm -f scorecard_${SC_VERSION}_linux_amd64.tar.gz scorecard_checksums.txt
 
@@ -78,8 +102,8 @@ COPY --chown=hc_user:hc_user pub-scir.sh ${HOME}/.local/bin/
 COPY --chown=hc_user:hc_user settings/ ${HOME}/.local/bin/settings/
 
 USER root
-RUN chown hc_user:hc_user ${HOME}/.local/bin/settings/scir-oss/localizations.lib.sh
 RUN chown -R hc_user:hc_user ${HOME}/.local/bin/settings/
+RUN chmod -R go+r ${HOME}/.local/bin/settings/
 
 USER hc_user
 RUN echo "# added by docker build" >> ${HOME}/.local/bin/settings/scir-oss/localizations.lib.sh \

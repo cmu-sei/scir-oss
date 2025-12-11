@@ -99,6 +99,58 @@ gcr.io/openssf/scorecard:latest
 mitre/hipcheck:latest (version 3.3.1) or hipcheck:2022-07-06-delivery (version 3.1.0)
 ```
 
+### Plugins
+
+As of December 2025, a small handful of analyzes were turned into plugins, specifically:
+* Problem Reporting (`pReport`)
+* Abandoned Projects (`pAbandon`)
+* Anonymous Authors (`anony`)
+* Affiliated Authors (`affil`)
+
+These Plugins are sensed and loaded at runtime from the `settings/scir-oss/plugins` folder (typically).
+
+#### Affiliated Authors
+
+This specific plugin is an improved affiliation analysis provided by `Hipcheck v3.14`. For non-docker SCIR-OSS containers (see `README-docker.md`), this particular version of `Hipcheck` needs to be installed for this plugin to operate. This is the recommended procedure for installing that affiliation helper:
+
+```bash
+$ HC_AFFILIATION_VERSION="3.14.0"
+$ curl -sSfL https://github.com/mitre/hipcheck/releases/download/hipcheck-v${HC_AFFILIATION_VERSION}/hipcheck-x86_64-unknown-linux-gnu.tar.xz -o hipcheck-x86_64-unknown-linux-gnu.tar.xz 
+$ curl -sSfL https://github.com/mitre/hipcheck/releases/download/hipcheck-v${HC_AFFILIATION_VERSION}/hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256 -o hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256
+$ sha256sum -c --strict hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256 --ignore-missing
+#
+# if sha256sum passes, continue
+#
+$ tar xf hipcheck-x86_64-unknown-linux-gnu.tar.xz --strip-components 1 -C /tmp/ hipcheck-x86_64-unknown-linux-gnu/hc
+$ mv -v /tmp/hc ${HOME}/.local/bin/hc-affiliation
+$ rm -f hipcheck-x86_64-unknown-linux-gnu.tar.xz hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256
+#
+# to test hc-affiliation
+# (it is assumed that hc-affiliation is in $PATH)
+#
+$ command -v hc-affiliation
+/home/vagrant/.local/bin/hc-affiliation
+#
+# a config.json file in 
+# settings/scir-oss/plugins/affil_plugin/
+# can be used to change the default path for hc-affiliation if needed
+$ hc-affiliation --policy ./settings/hipcheck314/config/Hipcheck.kdl ready
+                Done loading policy and data files (0 seconds)
+              Config using policy located at ./settings/hipcheck314/config/Hipcheck.kdl
+                Done loading exec config (0 seconds)
+                Done starting plugins (2 seconds)
+Hipcheck Version: hipcheck 3.14.0
+Git Version:      git version 2.46.2
+NPM Version:      10.9.2
+Cache Path:       /home/vagrant/.cache/hipcheck
+Policy Path:      ./settings/hipcheck314/config/Hipcheck.kdl
+Plugins:          All started successfully
+Hipcheck is ready to run!
+#
+# here ./settings/hipcheck314/config/Hipcheck.kdl is included in the git clone of cmu-sei/scir-oss
+#
+```
+
 ### Required Personal Access Tokens
 
 * Phylum.io account

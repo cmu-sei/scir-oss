@@ -1,0 +1,31 @@
+{
+  "name": "affil",
+  "displayName": "Affiliated Author",
+  "creationInfo": {
+    "created": "2025-12-10:08:44Z"
+  },
+  "affiliationChecker": {
+    "name": "hipcheck",
+    "version": "v3.14.0",
+    "program": {
+      "exec": {
+        "name": "hc-affiliation",
+        "path": "default"
+      },
+      "config": {
+        "folder": "hipcheck314",
+        "path": "default"
+      },
+      "policy": {
+        "__comment__threshold": "should match value in Hipcheck.kdl",
+        "threshold": 0
+      }
+    },
+    "p4report": {
+      "__comment__scoreWeight": "select one of critical, high, medium, low, none",
+      "scoreWeight": "none",
+      "__comment__alertLevel": "select one of info, warning, error",
+      "alertLevel": "info"
+    }
+  }
+}
