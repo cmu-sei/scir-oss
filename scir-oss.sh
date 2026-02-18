@@ -225,6 +225,8 @@ readonly SCcritical="10.0"
 readonly SChigh="7.5"
 readonly SCmedium="5.0"
 readonly SClow="2.5"
+# SCnone is available used by source'd plugin(s)
+# shellcheck disable=2034
 readonly SCnone="0"
 readonly SCfail="-1"
 
