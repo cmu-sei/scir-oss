@@ -31,6 +31,7 @@ cmu-sei/scir-oss              prod    bf55152dc404   28 minutes ago  744MB
 ### docker volumes
 
 ```bash
+export P4WKG="${HOME}/p4wkg"
 #
 # persistent OSS-P4/R working volume
 # must be read-write for UID 1001 and GID 1001
@@ -38,37 +39,37 @@ cmu-sei/scir-oss              prod    bf55152dc404   28 minutes ago  744MB
 #
 # the volume target must be '/app/oss-p4r'
 #
-  -v ~/p4wkg:/app/oss-p4r
+  -v "${P4WKG}":/app/oss-p4r
 #
 # persistent grype working volume
 # *highly recommended* for increased performance over time
 #
-  -v ~/p4wkg/cache/grype:/home/hc_user/.cache/grype
+  -v "${P4WKG}"/cache/grype:/home/hc_user/.cache/grype
 #
 # persistent hipcheck cache for git clones
 # *recommended* for increased performance over time
 #
-  -v ~/p4wkg/cache/hipcheck:/home/hc_user/.cache/hipcheck
+  -v "${P4WKG}"/cache/hipcheck:/home/hc_user/.cache/hipcheck
 #
 # imported SBOM (see -P <jsonfile>:sbom)
 # *optionally required* if an SBOM file is provided
 # two methods
 #   [1] map the SBOM as a value
 #       -v <>:/app/<>
-#       e.g. -v ~/p4wkg/oparest.spdx.json:/app/oparest.spdx.json
+#       e.g. -v "${HOME}$"/oparest.spdx.json:/app/oparest.spdx.json
 #   [2] copy the SBOM to the working folder and reference
-#       cp -a <> ~/p4wkg/<>
+#       cp -a <> "${HOME}$"/<>
 #       ... -P <>:sbom
 #       e.g. -P oparest.spdx.json:sbom
 #
-  -v ~/p4wkg/oparest.spdx.json:/app/oparest.spdx.json
+  -v "${P4WKG}"/oparest.spdx.json:/app/oparest.spdx.json
 #
 # persistent phylum API key and settings
 # *optionally required* if phylum CLI is to be used
 # -v /dev/null:/home/hc_user/.config/phylum/settings.yaml 
 # can be used as a place holder
 # 
-  -v ~/p4wkg/cache/phylum/settings.yaml:/home/hc_user/.config/phylum/settings.yaml
+  -v "${P4WKG}"/cache/phylum/settings.yaml:/home/hc_user/.config/phylum/settings.yaml
 ```
 
 ### docker environment
@@ -96,8 +97,10 @@ cmu-sei/scir-oss              prod    bf55152dc404   28 minutes ago  744MB
 #
 # make working volume folder and cache folders
 #
-mkdir -p ~/p4wkg/cache/grype ~/p4wkg/cache/hipcheck
-sudo chown -R 1001:1001 ~/p4wkg
+export P4WKG="${HOME}/p4wkg"
+
+mkdir -p "${P4WKG}"/cache/grype "${P4WKG}"/cache/hipcheck
+sudo chown -R 1001:1001 "${P4WKG}"
 
 #
 # confirm docker build
@@ -114,10 +117,10 @@ Version: pubRel 250417a (branch: publicRelease) for Server at https://confluence
 $ docker run --rm --entrypoint=/home/hc_user/.local/bin/grype cmu-sei/scir-oss:prod --version
 grype 0.92.2
 
-$ docker run --rm -v ~/p4wkg/cache/grype:/home/hc_user/.cache/grype -v ~/p4wkg/cache/hipcheck:/home/hc_user/.cache/hipcheck --entrypoint=/home/hc_user/.local/bin/grype cmu-sei/scir-oss:prod db update
+$ docker run --rm -v "${P4WKG}"/cache/grype:/home/hc_user/.cache/grype -v "${P4WKG}"/cache/hipcheck:/home/hc_user/.cache/hipcheck --entrypoint=/home/hc_user/.local/bin/grype cmu-sei/scir-oss:prod db update
 Vulnerability database updated to latest version!
 
-$ docker run --rm -v ~/p4wkg/cache/grype:/home/hc_user/.cache/grype -v ~/p4wkg/cache/hipcheck:/home/hc_user/.cache/hipcheck -e GRYPE_DB_VALIDATE_AGE=false --entrypoint=/home/hc_user/.local/bin/grype cmu-sei/scir-oss:prod db status -o json
+$ docker run --rm -v "${P4WKG}"/cache/grype:/home/hc_user/.cache/grype -v "${P4WKG}"/cache/hipcheck:/home/hc_user/.cache/hipcheck -e GRYPE_DB_VALIDATE_AGE=false --entrypoint=/home/hc_user/.local/bin/grype cmu-sei/scir-oss:prod db status -o json
 {
  "schemaVersion": "v6.0.2",
  "from": "https://grype.anchore.io/databases/v6/vulnerability-db_v6.0.2_2025-06-04T01:32:23Z_1749035557.tar.zst?checksum=sha256%3A77238f4ffbc7cf72bf4dedabbb21a3d0dd3ade90fb5d9df7c4da2870f8d1a9b7",
@@ -134,10 +137,10 @@ $ docker run --rm -v ~/p4wkg/cache/grype:/home/hc_user/.cache/grype -v ~/p4wkg/c
 $ docker run --rm \
   -e GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN} \
   -e HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN} \
-  -v ~/p4wkg:/app/oss-p4r \
+  -v "${P4WKG}":/app/oss-p4r \
+  -v "${P4WKG}"/cache/grype:/home/hc_user/.cache/grype \
+  -v "${P4WKG}"/cache/hipcheck:/home/hc_user/.cache/hipcheck \
   -v /dev/null:/home/hc_user/.config/phylum/settings.yaml \
-  -v ~/p4wkg/cache/grype:/home/hc_user/.cache/grype \
-  -v ~/p4wkg/cache/hipcheck:/home/hc_user/.cache/hipcheck \
   cmu-sei/scir-oss:prod analyze -l -v -C oparest -G go-training/opa-restful -P github:sbom
 ```
 
@@ -149,9 +152,6 @@ $ docker run --rm \
   -e CONF_PAT=${CONF_PAT} \
   -e GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN} \
   -e HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}   \
-  -v ~/p4wkg:/app/oss-p4r   \
-  -v /dev/null:/home/hc_user/.config/phylum/settings.yaml   \
-  -v ~/p4wkg/cache/grype:/home/hc_user/.cache/grype   \
-  -v ~/p4wkg/cache/hipcheck:/home/hc_user/.cache/hipcheck \
+  -v "${P4WKG}":/app/oss-p4r \
   cmu-sei/scir-oss:prod publish -l -v -C oparest -T 'OPA Rest API SBOM' -S MYDOCS -A 'OSS-P4/R Reports'
 ```
