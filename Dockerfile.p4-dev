@@ -10,8 +10,9 @@ ARG SC_VERSION="5.2.1"
 ARG SC_VERSION_SHAPIN="ae54ef0b3ecae4b2d0086a9f99cd44d5c0830e00a51aa0461981178ba4c29fcd"
 ARG PHYLUM_EXEC="/home/hc_user/.local/bin/phylum"
 ARG PHYLUM_SHAPIN="809fc876bb1c3aba7554a26b74ae53d908fb7b7e202eed8e4deaa22a02cfc6bc"
+ARG GRYPE_VERSION="v0.107.1"
 ARG GRYPE_EXEC="/home/hc_user/.local/bin/grype"
-ARG GRYPE_SHAPIN="c833472c3d590cfc6861f948c21fd9f87350c663e0943ba0b35e278a88f94049"
+ARG GRYPE_SHAPIN="48463e5e9b4116f7abc788fe06e633421724ea0ec08277b9979f6fcbcc984dd7"
 
 WORKDIR /app
 
@@ -76,7 +77,7 @@ RUN set -eux \
 #
 #RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -v -b ${HOME}/.local/bin
 RUN set -eux \
-    && curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b ${HOME}/.local/bin \
+    && curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b ${HOME}/.local/bin "${GRYPE_VERSION}" \
     && [ "${GRYPE_SHAPIN}" = "$(sha256sum ${GRYPE_EXEC} | cut -d\  -f1)" ]
 
 #
