@@ -33,6 +33,27 @@ The report uses two icons for readers to quickly identify issues with the report
 If you believe the error is substantive (e.g. something that shouldn't have happended), report the issue to the
 OSS-P4/R maintainers.
 
+# Responding to a Report
+The first time a report is run on a project it may surface a lot of potential findings that can
+seem overwhelming at first. Not all potential findings are applicable as some checks and
+scoring is heuristic and the tools are not perfect. Generally speaking, the report should
+be approached in such a way:
+
+1. Approach the report holistically. The goal is to reduce overall risk, not optimize for a certain score.
+2. Start in areas of the report that flag the highest risk factors first. If high risks are surfaced, 
+start there before moving to lower risk areas.
+3. If the team has established processes for dealing with certain findings, like vulnerabilities, 
+continue to follow those processes. The tools that OSS-P4/R uses might not be as comprehensive as others
+that the team uses. Bear that in mind, findings such as vulnerabilities are subject to a large number of
+false positives.
+4. Focus on areas of the report that are novel, that is checks that may not be covered by other tools
+in the pipeline.
+5. Review findings, understand what they mean (refer to tool documentation if needed), and use the 
+Avoid, Mitigate, Transfer, Accept process for deciding how to address findings.
+6. Prioritize and schedule changes needed to handle findings.
+7. Periodically re-run the report to pull in fresh information for the project and dependencies and 
+repeat the process.
+
 # Report Breakdown
 The report contains the following sections:
 
@@ -45,7 +66,10 @@ The report contains the following sections:
 
 ## Project Overview
 Basic information about the project under analysis including the project name, repository, and project description
-extracted from the project repository as well as the date the report was generated (current as of).
+extracted from the project repository as well as the date the report was generated (current as of). Links to the
+detailed sections at the end of the report are also included.
+
+![OSS-P4/R Report Overview](/docs/assets/oss-p4r%20report%20overview.png)
 
 ## Scores at a Glance
 The project's scores are broken down and aligned in two ways.
@@ -58,17 +82,25 @@ for each category as well as broken down by tool within each alignment. These ma
 teams and leadership to quickly focus in on areas of strength and weakness for the project as well
 as identify the tools that generated each (sub-)score for later analysis.
 
+![OSS-P4/R Scores at a Glance](/docs/assets/oss-pr4%20score%20overview.png)
+
+Scores are color-coded according to the thresholds established.
+
 ## Scores by Tool (OSSF Scorecard, Hipcheck, UP Custom Checks, Phylum.io)
-Following the DoD CIO Criteria alignment is the summary table of sub-scores by each tool aligned
-to the DoD CIO criteria areas. Each sub-score is summaried as:
+Following the DoD CIO Criteria alignment is the summary table of aggregate scores by each tool 
+as well as a break-out of factors contributing to the score aligned to the DoD CIO criteria areas. 
+Each factor is summaried as:
 
 [ ![Error](/docs/assets/error.svg) / ![Warning](/docs/assets/warning.svg) ] _Check Name_ (_Check Score_ / _Check Threshold_ )
 
-Icons indicate sub-scores that fell below threshold or were unable to be determined, respectively. 
-Sub-scores above threshold present no icon. Sub-scores that fall below threshold must be investigated and 
+Icons indicate factors that fell below threshold or were unable to be determined, respectively. 
+Factors above threshold present no icon. Factors that fall below threshold must be investigated and 
 findings validated by the team. Valid findings should be prioritized for risk determination and mitigation.
 
-Each sub-score is a composite score of individual checks performed by each tool.
+Each factor score is a composite of individual checks performed by each tool. The checks performed are
+reported in detail in the following section.
+
+![OSS-P4/R Scores by Tool](/docs/assets/oss-p4r%20summary%20findings.png)
 
 ## Contributing Factors
 Each composite sub-score is calculated based on various _checks_ performed by each tool. This section
@@ -80,6 +112,8 @@ The report groups similar checks from different tools into a common lexicon of c
 so that project owners can focus down on the specific areas of concern and identify the exact
 causes for concern. Tools can be added to OSS-P4/R and mapped to this lexicon, as well as expand
 the lexicon in future revisions of the tool.
+
+![OSS-P4/R Example Security Checks Detail](/docs/assets/oss-p4r%20check%20details.png)
 
 **Some checks are currently reported as _Manual_ and cannot be determined by OSS-P4/R at this time.** 
 If the risk assessor requires an answer to _Manual_ checks then a human must obtain the information
@@ -183,10 +217,14 @@ impacts of those vulnerabilities, however the risk that those mitigations prove 
 as the number of mitigations increases. It is better for teams to avoid using dependencies with known 
 vulnerabilities and they are encouraged to update dependencies to newer versions on a regular basis.
 
+![OSS-P4/R Example Vulnerability Finding](/docs/assets/oss-p4r%20example%20cve.png)
+
 ### Malicious Code Risk
 The malicious code risk section details out findings that _may_ be actually malicious or could be used
 for malicious purposes if implemented improperty or not protected appropriately. Each finding should
 be reviewed for applicability to the project.
+
+![OSS-P4/R Example Typosquatting Finding](/docs/assets/oss-p4r%20example%20typosquat.png)
 
 ### Engineering Risk
 The engineering risk section details out findings of instances that _may_ indicate poor engineering
@@ -203,3 +241,5 @@ The license risk section details out each instance of potential license incompat
 project and its dependencies. Not all findings are impactful, rather they _could_ be impactful 
 depending on how the project uses the dependency. Each finding should be reviewed to determine
 whether or not it impacts the project.
+
+![OSS-P4/R Example License Finding](/docs/assets/oss-p4r%20example%20license%20finding.png)
