@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://cmu-sei.github.io/scir-oss/manuals/README-results/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Results - OSS-P4/R Documentation</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Results";
+        var mkdocs_page_input_path = "manuals/README-results.md";
+        var mkdocs_page_url = "/scir-oss/manuals/README-results/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> OSS-P4/R Documentation
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../README-install/">Installing</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../README-running/">Running</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Results</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#general-conventions">General Conventions</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#scoring">Scoring</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#thresholds">Thresholds</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#iconography">Iconography</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../README-docker/">Using Docker</a>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">OSS-P4/R Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Results</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/cmu-sei/scir-oss/edit/main/docs/manuals/README-results.md">Edit on OSS-P4/R Documentation</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="oss-p4r-report-interpretation">OSS-P4/R Report Interpretation</h1>
+<p>The Open Source Software Project, Product, Protections, and Policy Report can be
+intimitating to interpret due to the sheer volume of information that is
+analyzed in order to create it. Here we will demystify the content and break
+down the report to explain what each section is focusing on and how the information
+and/or scores in each should be interpreted and responded to.</p>
+<h2 id="general-conventions">General Conventions</h2>
+<p>The report uses a small number of conventions that are consistent across the report.</p>
+<h3 id="scoring">Scoring</h3>
+<p>The OSS-P4/R report adopts a 0.0-10.0 scoring methodology with 10 representing the lowest measured risk,
+and 0.0 representing the highest measured risk. If a score cannot be determined due to an error or lack
+of information, NaN (Not a Number) might be displayed.</p>
+<h4 id="thresholds">Thresholds</h4>
+<p>Generally speaking, the following thresholds apply:</p>
+<table>
+<thead>
+<tr>
+<th>Threshold</th>
+<th>Risk Assessment</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>8.0-10.0</td>
+<td>Low Risk</td>
+</tr>
+<tr>
+<td>7.0-7.9</td>
+<td>Medium-low Risk</td>
+</tr>
+<tr>
+<td>5.0-6.9</td>
+<td>Medium Risk</td>
+</tr>
+<tr>
+<td>4.0-4.9</td>
+<td>Medium-high Risk</td>
+</tr>
+<tr>
+<td>0.0-3.9</td>
+<td>High Risk</td>
+</tr>
+</tbody>
+</table>
+<h3 id="iconography">Iconography</h3>
+<p>The report uses two icons for readers to quickly identify issues with the report:</p>
+<p><img alt="Error" src="../../assets/error.svg" /> The error icon indicates a finding that the report reader needs to respond to.</p>
+<p><img alt="Warning" src="../../assets/warning.svg" /> The warning icon indicates that an error with the tool(s) was encountered.
+If you believe the error is substantive (e.g. something that shouldn't have happended), report the issue to the
+OSS-P4/R maintainers.</p>
+<h1 id="responding-to-a-report">Responding to a Report</h1>
+<p>The first time a report is run on a project it may surface a lot of potential findings that can
+seem overwhelming at first. Not all potential findings are applicable as some checks and
+scoring is heuristic and the tools are not perfect. Generally speaking, the report should
+be approached in such a way:</p>
+<ol>
+<li>Approach the report holistically. The goal is to reduce overall risk, not optimize for a certain score.</li>
+<li>Start in areas of the report that flag the highest risk factors first. If high risks are surfaced, 
+start there before moving to lower risk areas.</li>
+<li>If the team has established processes for dealing with certain findings, like vulnerabilities, 
+continue to follow those processes. The tools that OSS-P4/R uses might not be as comprehensive as others
+that the team uses. Bear that in mind, findings such as vulnerabilities are subject to a large number of
+false positives.</li>
+<li>Focus on areas of the report that are novel, that is checks that may not be covered by other tools
+in the pipeline.</li>
+<li>Review findings, understand what they mean (refer to tool documentation if needed), and use the 
+Avoid, Mitigate, Transfer, Accept process for deciding how to address findings.</li>
+<li>Prioritize and schedule changes needed to handle findings.</li>
+<li>Periodically re-run the report to pull in fresh information for the project and dependencies and 
+repeat the process.</li>
+</ol>
+<h1 id="report-breakdown">Report Breakdown</h1>
+<p>The report contains the following sections:</p>
+<ol>
+<li>Overview information and links to critical and high vulnerabilities at the end of the report.</li>
+<li>Color-coded Scores-at-a-Glance</li>
+<li>Scores by Tool (OSSF Scorecard, Hipcheck, UP Custom Checks, Phylum.io)</li>
+<li>Contributing Factors</li>
+<li>OSS-P4/R Technical Metadata</li>
+<li>Dependency Risk Factors</li>
+</ol>
+<h2 id="project-overview">Project Overview</h2>
+<p>Basic information about the project under analysis including the project name, repository, and project description
+extracted from the project repository as well as the date the report was generated (current as of). Links to the
+detailed sections at the end of the report are also included.</p>
+<p><img alt="OSS-P4/R Report Overview" src="../../assets/oss-p4r%20report%20overview.png" /></p>
+<h2 id="scores-at-a-glance">Scores at a Glance</h2>
+<p>The project's scores are broken down and aligned in two ways.</p>
+<ol>
+<li>Project, Product, Protection, Policy (P4) Alignment</li>
+<li>DoD CIO Software Supply Chain Security Alignment</li>
+</ol>
+<p>Each tool check is allocated to one (or more) categories within each alignment. Overall scores are provided 
+for each category as well as broken down by tool within each alignment. These matricies allow for
+teams and leadership to quickly focus in on areas of strength and weakness for the project as well
+as identify the tools that generated each (sub-)score for later analysis.</p>
+<p><img alt="OSS-P4/R Scores at a Glance" src="../../assets/oss-pr4%20score%20overview.png" /></p>
+<p>Scores are color-coded according to the thresholds established.</p>
+<h2 id="scores-by-tool-ossf-scorecard-hipcheck-up-custom-checks-phylumio">Scores by Tool (OSSF Scorecard, Hipcheck, UP Custom Checks, Phylum.io)</h2>
+<p>Following the DoD CIO Criteria alignment is the summary table of aggregate scores by each tool 
+as well as a break-out of factors contributing to the score aligned to the DoD CIO criteria areas. 
+Each factor is summaried as:</p>
+<p>[ <img alt="Error" src="../../assets/error.svg" /> / <img alt="Warning" src="../../assets/warning.svg" /> ] <em>Check Name</em> (<em>Check Score</em> / <em>Check Threshold</em> )</p>
+<p>Icons indicate factors that fell below threshold or were unable to be determined, respectively. 
+Factors above threshold present no icon. Factors that fall below threshold must be investigated and 
+findings validated by the team. Valid findings should be prioritized for risk determination and mitigation.</p>
+<p>Each factor score is a composite of individual checks performed by each tool. The checks performed are
+reported in detail in the following section.</p>
+<p><img alt="OSS-P4/R Scores by Tool" src="../../assets/oss-p4r%20summary%20findings.png" /></p>
+<h2 id="contributing-factors">Contributing Factors</h2>
+<p>Each composite sub-score is calculated based on various <em>checks</em> performed by each tool. This section
+breaks down the DoD CIO Criteria alignment areas and details out contributing factors, aligns 
+tool checks performed to each factor, and presents whether a tool check flagged that factor. 
+The same icons from the previous section are used here.</p>
+<p>The report groups similar checks from different tools into a common lexicon of contributing factors
+so that project owners can focus down on the specific areas of concern and identify the exact
+causes for concern. Tools can be added to OSS-P4/R and mapped to this lexicon, as well as expand
+the lexicon in future revisions of the tool.</p>
+<p><img alt="OSS-P4/R Example Security Checks Detail" src="../../assets/oss-p4r%20check%20details.png" /></p>
+<p><strong>Some checks are currently reported as <em>Manual</em> and cannot be determined by OSS-P4/R at this time.</strong> 
+If the risk assessor requires an answer to <em>Manual</em> checks then a human must obtain the information
+and report the finding.</p>
+<p>The following explains the purpose of each contributing factor.</p>
+<h3 id="security">Security</h3>
+<table>
+<thead>
+<tr>
+<th>Contributing Factor</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Trusted Sources</td>
+<td>Where the source code for the project resides and whether or not it is available (and used) from a trusted source.</td>
+</tr>
+<tr>
+<td>Public or Private</td>
+<td>Whether the project's repository is public or private.</td>
+</tr>
+<tr>
+<td>Fully Unrestricted</td>
+<td>Whether the project's repository is fully unrestricted (allows reads and/or writes from any contributor).</td>
+</tr>
+<tr>
+<td>Login Credentials</td>
+<td>Whether the project uses secure access credentials and whether they are least privilege.</td>
+</tr>
+<tr>
+<td>Use of Repository Protections</td>
+<td>Whether the project's repository uses fine-grained protections to prevent unintended or malicious commits to critical branches.</td>
+</tr>
+<tr>
+<td>Large Commits</td>
+<td>Whether the project's repository has evidence of unusually large commits. Large commits can be used to smuggle in malicious code.</td>
+</tr>
+<tr>
+<td>Obfuscated Code</td>
+<td>Whether or not the project exhibits evidence of obfuscated code in an attempt to circumvent SAST tooling.</td>
+</tr>
+<tr>
+<td>Binary Artifact(s)</td>
+<td>Whether or not the project contains binary artifacts as part of the project's source code. Binary artifacts can be used to smuggle malicious content circumventing detection tools.</td>
+</tr>
+<tr>
+<td>Typosquatting</td>
+<td>Whether or not the project uses a typosquatted dependency as opposed to the genuine one. Typosquatted dependencies can be a vector for attack.</td>
+</tr>
+<tr>
+<td>Engineering Risk</td>
+<td>Whether or not the project's source code or exhibits code or architectural quality issues.</td>
+</tr>
+<tr>
+<td>Malicious Code</td>
+<td>Whether or not tools detected possible instances of malicious code in the project. These instances should be individually investigated.</td>
+</tr>
+<tr>
+<td>Known Vulnerabilities</td>
+<td>Number and severity of vulnerabilities reported on the project and its dependencies. The detail report follows at the end of the OSS-P4/R report.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="integrity">Integrity</h3>
+<table>
+<thead>
+<tr>
+<th>Contributing Factor</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Peer Reviews</td>
+<td>Whether or not (and to what extent) that the project exhibits evidence of peer review for changes (such as pull requests with comments).</td>
+</tr>
+<tr>
+<td>Use of Code and Security Scanners</td>
+<td>Whether or not (and to what extend) the project exhibits use of code and/or security scanners as part of its development process.</td>
+</tr>
+<tr>
+<td>Signed Commits</td>
+<td>Whether or not the project's commits are signed.</td>
+</tr>
+<tr>
+<td>Cryptographically Signed Commits</td>
+<td>Whether or not the project's commits are cryptographically verifiable to a trusted source (i.e., certificate issued by a trusted issuer).</td>
+</tr>
+<tr>
+<td>Cryptographically Signed Releases and Artifacts</td>
+<td>Whether or not the project's releases and/or artifacts are cryptographically signed and verifiable.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="dependencies">Dependencies</h3>
+<table>
+<thead>
+<tr>
+<th>Contributing Factor</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Published Software Bill of Materials (SBOM)</td>
+<td>Whether or not the project (or project's repository) publishes an SBOM.</td>
+</tr>
+<tr>
+<td>Dependencies Pinned to Version</td>
+<td>Whether or not the project's dependencies are pinned to specific versions. This can be accomplished through the use of lock files in many languages and frameworks.</td>
+</tr>
+<tr>
+<td>Dependencies up to Date</td>
+<td>Whether or not the project's dependencies are up to date and whether or not a tool (i.e., Dependabot) is used to automate the process.</td>
+</tr>
+<tr>
+<td>Number of OSS Dependencies</td>
+<td>Total number open source of dependencies (direct and transitive).</td>
+</tr>
+<tr>
+<td>Number of Proprietary Dependencies</td>
+<td>Total number of propriety (non open source) dependencies (direct and transitive).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="malicious-actors">Malicious Actors</h3>
+<table>
+<thead>
+<tr>
+<th>Contributing Factor</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Author(s) Known to Commit Vulnerabilities</td>
+<td>Whether or not the project has among its contributors known author(s) who have committed vulnerable code in the past.</td>
+</tr>
+<tr>
+<td>Author(s) Known to Commit Malicious Code</td>
+<td>Whether or not the project has among its contributors known author(s) who have committed malicious code in the past.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="long-term-support">Long Term Support</h3>
+<table>
+<thead>
+<tr>
+<th>Contributing Factor</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Project</td>
+<td>The project's canonical repository and description (informational).</td>
+</tr>
+<tr>
+<td>Individual or Organization</td>
+<td>Whether the project is maintained by an organization or individual and self-reported metadata about them (informational).</td>
+</tr>
+<tr>
+<td>Organization Type</td>
+<td>Whether or not the type of organization could be determined (i.e., commercial company, non-profit foundation, university, research center, etc.).</td>
+</tr>
+<tr>
+<td>SLSA Level</td>
+<td>Whether or not the project has attained a SLSA (Supply-chain Levels for Software Artifacts) level.</td>
+</tr>
+<tr>
+<td>Best Practices</td>
+<td>Checks whether or not the project uses CI and reports its status (i.e., uses Github badges to report on CI, tests, etc. passing).</td>
+</tr>
+<tr>
+<td>Number of Abandoned Project(s)</td>
+<td>Whether or not the project and any of its dependencies are deemed to be abanded (i.e., not maintained).</td>
+</tr>
+<tr>
+<td>OSSF Activity (criticality) Score</td>
+<td>The OSSF Criticality Score of the project. This is a globally calculated value that measures the relative importance of this project to the open source community.</td>
+</tr>
+<tr>
+<td>Commits</td>
+<td>Reports the project's last commit date, days since first commit, and activity over the past 90 days. Activity on the project indicates maintenance. No activity may indicate abandonment.</td>
+</tr>
+<tr>
+<td>Number of Contributors</td>
+<td>Total number of individual contributors to the project as well as diversity of those contributors (i.e., contributors from different organizations).</td>
+</tr>
+<tr>
+<td>Problem Reporting Process</td>
+<td>Whether or not the project accepts issue reports and number of current open issues.</td>
+</tr>
+<tr>
+<td>Vulnerability Reporting Process</td>
+<td>Whether or not the project's process for reporting security or vulnerability information could be determined.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="suitability">Suitability</h3>
+<table>
+<thead>
+<tr>
+<th>Contributing Factor</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>License</td>
+<td>The license(s) that the project is distributed under and whether one is compatible with use.</td>
+</tr>
+<tr>
+<td>License Risk</td>
+<td>Looks at the licenses of the project's dependencies and reports whether there are possible conflicts with the license the project is distributed under.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tool-specific-information">Tool-specific Information</h3>
+<p>For more information on the checks run by each tool, please refer to their documentation:
+- <a href="https://github.com/ossf/scorecard/blob/main/docs/checks.md">OSSF Scorecard</a>
+- <a href="https://github.com/mitre/hipcheck/blob/main/docs/book/src/using/analyses.md">MITRE Hipcheck</a>
+- <a href="https://docs.phylum.io/analytics">Phylum.io</a></p>
+<h2 id="oss-p4r-technical-metadata">OSS-P4/R Technical Metadata</h2>
+<p>This section presents information that might be useful for debugging or troubleshooting and
+includes information such as the run date, OSS-P4/R version used to generate the report, 
+Metadata for Phylum run(s), time ellapsed to complete, the invocation command line, and
+summary comments/caveats that impact thresholds and reproducability of the report.</p>
+<h2 id="dependency-risk-factors">Dependency Risk Factors</h2>
+<p>The last section, and likely most lengthy, is the dependency risk factor details. This section
+reports upon:</p>
+<ol>
+<li>Critical and High Vulnerabilities in the project or its dependencies</li>
+<li>Critical and High potential instances of malicious code risk in the project or its dependencies</li>
+<li>Critical and High potential instances of engineering risk in the project</li>
+<li>Critical and High potential instances of author risk</li>
+<li>All instances of potential license risk</li>
+</ol>
+<h3 id="vulnerabilities">Vulnerabilities</h3>
+<p>While OSS-P4/R provides a detailed report on <strong>known</strong> vulnerabilities in the project and its dependencies
+it is not intended to replace a more rigorous vulnerability management process. Rather, this report
+is intended to highlight the totality of the vulnerability landscape for the project and its dependencies.
+If a project has known vulnerabilities, those certainly need to be prioritized and addressed as they
+are able to be directly explointed. Vulnerabilities in dependencies is harder to determine whether or not
+they impact the project. OSS-P4/R does not attempt to make that determination. Using dependencies with
+vulnerabilities (particularly of critical and high severity) exposes the project to increasing levels of risk
+as the number and severity of those vulnerabilities increases. A project team can attempt to mitigate the 
+impacts of those vulnerabilities, however the risk that those mitigations prove to be ineffective increases 
+as the number of mitigations increases. It is better for teams to avoid using dependencies with known 
+vulnerabilities and they are encouraged to update dependencies to newer versions on a regular basis.</p>
+<p><img alt="OSS-P4/R Example Vulnerability Finding" src="../../assets/oss-p4r%20example%20cve.png" /></p>
+<h3 id="malicious-code-risk">Malicious Code Risk</h3>
+<p>The malicious code risk section details out findings that <em>may</em> be actually malicious or could be used
+for malicious purposes if implemented improperty or not protected appropriately. Each finding should
+be reviewed for applicability to the project.</p>
+<p><img alt="OSS-P4/R Example Typosquatting Finding" src="../../assets/oss-p4r%20example%20typosquat.png" /></p>
+<h3 id="engineering-risk">Engineering Risk</h3>
+<p>The engineering risk section details out findings of instances that <em>may</em> indicate poor engineering
+practices. These instances are particular to the project and should be investigated. Findings include
+such issues like empty files, commented out code, unreachable code, etc. The team should investigate
+each finding and determine the correct remediation.</p>
+<h3 id="author-risk">Author Risk</h3>
+<p>The author risk section details out each finding of a suspicious author contributing to the project
+code base or of one of its dependencies.</p>
+<h3 id="license-risk">License Risk</h3>
+<p>The license risk section details out each instance of potential license incompatibility between the 
+project and its dependencies. Not all findings are impactful, rather they <em>could</em> be impactful 
+depending on how the project uses the dependency. Each finding should be reviewed to determine
+whether or not it impacts the project.</p>
+<p><img alt="OSS-P4/R Example License Finding" src="../../assets/oss-p4r%20example%20license%20finding.png" /></p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../README-running/" class="btn btn-neutral float-left" title="Running"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../README-docker/" class="btn btn-neutral float-right" title="Using Docker">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/cmu-sei/scir-oss" class="fa fa-code-fork" style="color: #fcfcfc"> OSS-P4/R Documentation</a>
+        </span>
+    
+    
+      <span><a href="../README-running/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../README-docker/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

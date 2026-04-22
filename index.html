@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="description" content="None" /><link rel="canonical" href="https://cmu-sei.github.io/scir-oss/" />
+      <link rel="shortcut icon" href="img/favicon.ico" />
+    <title>OSS-P4/R Documentation</title>
+    <link rel="stylesheet" href="css/theme.css" />
+    <link rel="stylesheet" href="css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Home";
+        var mkdocs_page_input_path = "index.md";
+        var mkdocs_page_url = "/scir-oss/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="." class="icon icon-home"> OSS-P4/R Documentation
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="./search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Home</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#license">License</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#public-release">Public Release</a>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="manuals/README-install/">Installing</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="manuals/README-running/">Running</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="manuals/README-results/">Results</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="manuals/README-docker/">Using Docker</a>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href=".">OSS-P4/R Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Home</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/cmu-sei/scir-oss/edit/main/docs/index.md">Edit on OSS-P4/R Documentation</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="oss-p4r">OSS-P4/R &#x2621;</h1>
+<p><em>"Be Aware" of the Project, Product, Protections, and Policy of OSS Components.</em></p>
+<p>The ability to freely inspect the source code of a software product is an
+important part of determining supply chain risk. But just as important is
+the ability to inspect the practices and policies a project employs to
+protect the integrity of that source code.</p>
+<h2 id="overview">Overview</h2>
+<p>OSS-P4/R uses public data sources and Open Source tools to gather data and
+information correlated to supply chain concerns which consider various aspects
+of the project and those project's dependencies.</p>
+<p><img alt="Example" src="examples/oparest_example.svg" /></p>
+<pre><code class="language-sh"># Obtain supply chain inforrmation about an Open Source project given
+# its GitHub name and repository and any Software Bill of Materials
+# represented by the project and its dependencies.
+scir-oss.sh analyze -C oparest -G go-training/opa-restful -P github:sbom 
+
+# Perform the same analysis with a Software Bill of Materials generated
+# in SPDX from a locally scanned folder
+scir-oss.sh analyze -C oparest -G go-training/opa-restful -P myOpaRest.spdx.json:sbom 
+
+# After analysis, published the results to an Atlassian Confluence site
+scir-oss.sh publish -C oparest -T &quot;OPA REST-API&quot; -S MySpace -A &quot;OSS-P4/R Reports&quot;
+
+# Or, view the results using a local web browser as an HTML viewer
+${using_your_favorite_browser_open} oparest/oparest_scir.www.html
+
+# Or, view the results using a local Markdown viewer
+glow oparest/oparest_scir.md
+</code></pre>
+<p><a href="https://html-preview.github.io/?url=https://github.com/cmu-sei/scir-oss/blob/main/docs/examples/oparest_scir.www.html">Click here to see the complete OPA REST-API report in web browser</a></p>
+<p><a href="examples/oparest_scir/">Click here to see the complete OPA REST-API report in Markdown</a></p>
+<p>For more information, check out the <a href="manuals/README-running/">Quickstart Guide</a>.</p>
+<h2 id="installation">Installation</h2>
+<p>See the <a href="manuals/README-install/">Installation Instructions</a> or <a href="manuals/README-docker/">Docker Installation Instructions</a></p>
+<h2 id="license">License</h2>
+<p>OSS-P4/R is licensed under an MIT-style license, which can be
+found in the <a href="https://github.com/cmu-sei/scir-oss/blob/main/license.txt"><code>LICENSE</code></a> file in this repository.</p>
+<h2 id="public-release">Public Release</h2>
+<blockquote>
+<p>Open Source P4 Tool</p>
+<p>Copyright 2024 Carnegie Mellon University.</p>
+<p>NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.</p>
+<p>Licensed under a MIT-style license, please see license.txt or contact permission@sei.cmu.edu for full terms.</p>
+<p>[DISTRIBUTION STATEMENT A] This material has been approved for public release and unlimited distribution.  &gt; Please see Copyright notice for non-US Government use and distribution.</p>
+<p>This Software includes and/or makes use of Third-Party Software each subject to its own license.</p>
+<p>DM24-0786</p>
+<p>Applies to <code>pubRel 240719a (branch: publicRelease)</code> versions or later.</p>
+</blockquote>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="manuals/README-install/" class="btn btn-neutral float-right" title="Installing">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/cmu-sei/scir-oss" class="fa fa-code-fork" style="color: #fcfcfc"> OSS-P4/R Documentation</a>
+        </span>
+    
+    
+    
+      <span><a href="manuals/README-install/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = ".";</script>
+    <script src="js/theme_extra.js"></script>
+    <script src="js/theme.js"></script>
+      <script src="search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
+
+<!--
+MkDocs version : 1.6.1
+Build Date UTC : 2026-04-22 17:55:10.280206+00:00
+-->

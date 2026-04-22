@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://cmu-sei.github.io/scir-oss/manuals/README-install/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Installing - OSS-P4/R Documentation</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Installing";
+        var mkdocs_page_input_path = "manuals/README-install.md";
+        var mkdocs_page_url = "/scir-oss/manuals/README-install/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> OSS-P4/R Documentation
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Installing</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#prerequisites">Prerequisites</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#optional">Optional</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#recommended-procedure">Recommended Procedure</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#git-the-code">git the code</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#cp-to-local-bin">cp to local bin</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#perform-localizations">Perform Localizations</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#scir-oss-runtime">SCIR-OSS Runtime</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#scir-oss-report-writing">SCIR-OSS Report Writing</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#pub-scir-runtime">PUB-SCIR Runtime</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#docker-images-and-binaries">docker images and binaries</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#plugins">Plugins</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#affiliated-authors">Affiliated Authors</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#required-personal-access-tokens">Required Personal Access Tokens</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../README-running/">Running</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../README-results/">Results</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../README-docker/">Using Docker</a>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">OSS-P4/R Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Installing</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/cmu-sei/scir-oss/edit/main/docs/manuals/README-install.md">Edit on OSS-P4/R Documentation</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="oss-p4r-installation">OSS-P4/R Installation</h1>
+<h2 id="prerequisites">Prerequisites</h2>
+<pre><code>bash (version &gt;= 5.0)
+jq-1.6
+curl 7.68.0
+Docker version 20.10.12
+base64 (GNU coreutils) 8.30
+iconv (GNU libiconv 1.11)
+sha256sum (GNU coreutils) 8.30
+tar (GNU tar) 1.30
+</code></pre>
+<pre><code class="language-bash"># for debian-based systems:
+apt install -y build-essential docker docker-compose apt-transport-https unzip jq curl bc
+#
+# likely need to re-login after this step
+#
+usermod -aG docker vagrant
+</code></pre>
+<h3 id="optional">Optional</h3>
+<pre><code>criticality_score v1.0.8 [1]
+grype 0.91.0 [2]
+phylum v7.3.0 [3]
+</code></pre>
+<p>[1] To get OSSF's Criticality Score for the project (see <code>-G</code> command line option). <a href="https://github.com/ossf/criticality_score">OSSF Criticality Score Install</a></p>
+<p>[2] To find issues based on SBOM packages (see <code>-P</code> command line option). <a href="https://github.com/anchore/grype">Anchore Grype Install</a></p>
+<p>[3] Only when using Phylum.io/Veracode service (see <code>-P</code> command line option). <a href="https://github.com/phylum-dev/cli">Phylum.io CLI Install</a></p>
+<h2 id="recommended-procedure">Recommended Procedure</h2>
+<h3 id="git-the-code"><code>git</code> the code</h3>
+<pre><code class="language-bash">git clone https://github.com/cmu-sei/scir-oss.git
+</code></pre>
+<h3 id="cp-to-local-bin"><code>cp</code> to local bin</h3>
+<pre><code class="language-bash">mkdir -p ~/.local/bin
+cp -i scir-oss/scir-oss.sh ~/.local/bin/
+cp -i scir-oss/pub-scir.sh ~/.local/bin/
+cp -i -r scir-oss/settings/ ~/.local/bin/
+export PATH=&quot;~/.local/bin:${PATH}&quot;
+</code></pre>
+<h3 id="perform-localizations">Perform Localizations</h3>
+<h4 id="scir-oss-runtime">SCIR-OSS Runtime</h4>
+<p>Likely necessary, especially for PATHs. Found in <code>&lt;installpath&gt;/settings/scir-oss/localizations.lib.sh</code></p>
+<p>Specify which <code>docker</code> containers (or equivalent binaries) to use.</p>
+<pre><code class="language-bash">#
+# use docker hub and OSSF images
+#
+_LOCAL_OSSFSC=&quot;gcr.io/openssf/scorecard:latest&quot;
+_LOCAL_OSSFCS=&quot;${HOME}/go/bin/criticality_score&quot;
+_LOCAL_MITRHC=&quot;mitre/hipcheck:latest&quot;
+</code></pre>
+<h4 id="scir-oss-report-writing">SCIR-OSS Report Writing</h4>
+<p>Probably not necessary. Found in <code>&lt;installpath&gt;/settings/scir-oss/reportWriter_criteria_desc_lib.sh.&lt;language&gt;</code></p>
+<p>Specify labels and descriptions for the final <code>.json</code>, <code>.html</code>, and <code>.md</code> report.</p>
+<pre><code class="language-bash">_LOCAL_ABANDONED_PROJECTS_DESC=&quot;Projects identified, explicitly by way of OSSF Scorecard and/or GitHub's API as being marked as archived&quot;
+_LOCAL_ABANDONED_PROJECTS_ID=&quot;Abandoned_Projects&quot;
+_LOCAL_ABANDONED_PROJECTS_LABEL=&quot;Number of Abandoned Project(s)&quot;
+_LOCAL_ABANDONED_PROJECTS_RISK=&quot;abandoned projects may have faults and vulnerabilities that may never by fixed&quot;
+</code></pre>
+<h4 id="pub-scir-runtime">PUB-SCIR Runtime</h4>
+<p>Very likely necessary if you intend to use Altassian's Confluence. Found in <code>&lt;installpath&gt;)/settings/pub-scir/localizations.lib.sh</code></p>
+<p>Specify defaults for the Altassan Confluence Server, Confluence Space Key, and Ancestor Title</p>
+<pre><code class="language-bash">_LOCAL_CONFSVR=&quot;https://confluence.myhost.example.com&quot;
+_LOCAL_spaceKey=&quot;MYDOCS&quot;
+_LOCAL_ancestorTitle=&quot;OSS-P4 Reports&quot;
+</code></pre>
+<h3 id="docker-images-and-binaries">docker images and binaries</h3>
+<pre><code>gcr.io/openssf/scorecard:latest
+mitre/hipcheck:latest (version 3.3.1) or hipcheck:2022-07-06-delivery (version 3.1.0)
+</code></pre>
+<h3 id="plugins">Plugins</h3>
+<p>As of December 2025, a small handful of analyzes were turned into plugins, specifically:
+* Problem Reporting (<code>pReport</code>)
+* Abandoned Projects (<code>pAbandon</code>)
+* Anonymous Authors (<code>anony</code>)
+* Affiliated Authors (<code>affil</code>)</p>
+<p>These Plugins are sensed and loaded at runtime from the <code>settings/scir-oss/plugins</code> folder (typically).</p>
+<h4 id="affiliated-authors">Affiliated Authors</h4>
+<p>This specific plugin is an improved affiliation analysis provided by <code>Hipcheck v3.14</code>. For non-docker SCIR-OSS containers (see <code>README-docker.md</code>), this particular version of <code>Hipcheck</code> needs to be installed for this plugin to operate. This is the recommended procedure for installing that affiliation helper:</p>
+<pre><code class="language-bash">$ HC_AFFILIATION_VERSION=&quot;3.14.0&quot;
+$ curl -sSfL https://github.com/mitre/hipcheck/releases/download/hipcheck-v${HC_AFFILIATION_VERSION}/hipcheck-x86_64-unknown-linux-gnu.tar.xz -o hipcheck-x86_64-unknown-linux-gnu.tar.xz 
+$ curl -sSfL https://github.com/mitre/hipcheck/releases/download/hipcheck-v${HC_AFFILIATION_VERSION}/hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256 -o hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256
+$ sha256sum -c --strict hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256 --ignore-missing
+#
+# if sha256sum passes, continue
+#
+$ tar xf hipcheck-x86_64-unknown-linux-gnu.tar.xz --strip-components 1 -C /tmp/ hipcheck-x86_64-unknown-linux-gnu/hc
+$ mv -v /tmp/hc ${HOME}/.local/bin/hc-affiliation
+$ rm -f hipcheck-x86_64-unknown-linux-gnu.tar.xz hipcheck-x86_64-unknown-linux-gnu.tar.xz.sha256
+#
+# to test hc-affiliation
+# (it is assumed that hc-affiliation is in $PATH)
+#
+$ command -v hc-affiliation
+/home/vagrant/.local/bin/hc-affiliation
+#
+# a config.json file in 
+# settings/scir-oss/plugins/affil_plugin/
+# can be used to change the default path for hc-affiliation if needed
+$ hc-affiliation --policy ./settings/hipcheck314/config/Hipcheck.kdl ready
+                Done loading policy and data files (0 seconds)
+              Config using policy located at ./settings/hipcheck314/config/Hipcheck.kdl
+                Done loading exec config (0 seconds)
+                Done starting plugins (2 seconds)
+Hipcheck Version: hipcheck 3.14.0
+Git Version:      git version 2.46.2
+NPM Version:      10.9.2
+Cache Path:       /home/vagrant/.cache/hipcheck
+Policy Path:      ./settings/hipcheck314/config/Hipcheck.kdl
+Plugins:          All started successfully
+Hipcheck is ready to run!
+#
+# here ./settings/hipcheck314/config/Hipcheck.kdl is included in the git clone of cmu-sei/scir-oss
+#
+</code></pre>
+<h3 id="required-personal-access-tokens">Required Personal Access Tokens</h3>
+<ul>
+<li>Phylum.io account
+The two following command should succeed before using <code>scir-oss.sh</code> with Phylum.io projects (see <code>-P</code> command line option)</li>
+</ul>
+<pre><code>phylum auth status
+✅ Currently authenticated as 'shissam@sei.cmu.edu' with long lived refresh token
+phylum auth token --bearer
+eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSl... (truncated here)
+</code></pre>
+<ul>
+<li>GitHub account</li>
+</ul>
+<pre><code class="language-bash">export GITHUB_AUTH_TOKEN=&quot;...&quot;
+</code></pre>
+<pre><code class="language-bash">export HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}
+</code></pre>
+<ul>
+<li>Atlassian Confluence account</li>
+</ul>
+<pre><code class="language-bash">export CONF_PAT=&quot;...&quot;
+</code></pre>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../.." class="btn btn-neutral float-left" title="Home"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../README-running/" class="btn btn-neutral float-right" title="Running">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/cmu-sei/scir-oss" class="fa fa-code-fork" style="color: #fcfcfc"> OSS-P4/R Documentation</a>
+        </span>
+    
+    
+      <span><a href="../.." style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../README-running/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

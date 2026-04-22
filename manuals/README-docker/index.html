@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://cmu-sei.github.io/scir-oss/manuals/README-docker/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Using Docker - OSS-P4/R Documentation</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Using Docker";
+        var mkdocs_page_input_path = "manuals/README-docker.md";
+        var mkdocs_page_url = "/scir-oss/manuals/README-docker/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> OSS-P4/R Documentation
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../README-install/">Installing</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../README-running/">Running</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../README-results/">Results</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Using Docker</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#recommended-procedure">Recommended Procedure</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#git-the-code">git the code</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#docker-volumes">docker volumes</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#docker-environment">docker environment</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#example-setup">Example Setup</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#example-analyze-scir-oss">Example Analyze (SCIR-OSS)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#example-publish-pub-scir">Example Publish (PUB-SCIR)</a>
+    </li>
+    </ul>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">OSS-P4/R Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Using Docker</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/cmu-sei/scir-oss/edit/main/docs/manuals/README-docker.md">Edit on OSS-P4/R Documentation</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="oss-p4r-docker-installation">OSS-P4/R Docker Installation</h1>
+<h2 id="recommended-procedure">Recommended Procedure</h2>
+<h3 id="git-the-code"><code>git</code> the code</h3>
+<pre><code class="language-bash">git clone https://github.com/cmu-sei/scir-oss.git
+cd scir-oss
+#
+# build criticality_score since OSSF does not have a pre-built container
+# the criticality_score executable is copied from this container into the
+# next built OSS-P4/R container
+#
+git clone https://github.com/ossf/criticality_score.git
+cd criticality_score
+docker build -f ../Dockerfile.criticality_score --platform linux/amd64 -t cmu-sei/criticality_score:dev .
+docker images | grep -E '(REPOSITORY|cmu-sei/criticality_score)'
+REPOSITORY                    TAG     IMAGE ID       CREATED         SIZE
+cmu-sei/criticality_score     dev     004b13def645   4 weeks ago     102MB
+cd ..
+#
+# now build the OSS-P4/R container
+#
+docker build -f ./Dockerfile.p4-prod --platform linux/amd64 -t cmu-sei/scir-oss:prod .
+docker images | grep -E '(REPOSITORY|cmu-sei/scir-oss)'
+REPOSITORY                    TAG     IMAGE ID       CREATED         SIZE
+cmu-sei/scir-oss              prod    bf55152dc404   28 minutes ago  744MB
+</code></pre>
+<h3 id="docker-volumes">docker volumes</h3>
+<pre><code class="language-bash">export P4WKG=&quot;${HOME}/p4wkg&quot;
+#
+# persistent OSS-P4/R working volume
+# must be read-write for UID 1001 and GID 1001
+# *required* for analyzing and publishing over time
+#
+# the volume target must be '/app/oss-p4r'
+#
+  -v &quot;${P4WKG}&quot;:/app/oss-p4r
+#
+# persistent grype working volume
+# *highly recommended* for increased performance over time
+#
+  -v &quot;${P4WKG}&quot;/cache/grype:/home/hc_user/.cache/grype
+#
+# persistent hipcheck cache for git clones
+# *recommended* for increased performance over time
+#
+  -v &quot;${P4WKG}&quot;/cache/hipcheck:/home/hc_user/.cache/hipcheck
+#
+# imported SBOM (see -P &lt;jsonfile&gt;:sbom)
+# *optionally required* if an SBOM file is provided
+# two methods
+#   [1] map the SBOM as a value
+#       -v &lt;&gt;:/app/&lt;&gt;
+#       e.g. -v &quot;${HOME}$&quot;/oparest.spdx.json:/app/oparest.spdx.json
+#   [2] copy the SBOM to the working folder and reference
+#       cp -a &lt;&gt; &quot;${HOME}$&quot;/&lt;&gt;
+#       ... -P &lt;&gt;:sbom
+#       e.g. -P oparest.spdx.json:sbom
+#
+  -v &quot;${P4WKG}&quot;/oparest.spdx.json:/app/oparest.spdx.json
+#
+# persistent phylum API key and settings
+# *optionally required* if phylum CLI is to be used
+# -v /dev/null:/home/hc_user/.config/phylum/settings.yaml 
+# can be used as a place holder
+# 
+  -v &quot;${P4WKG}&quot;/cache/phylum/settings.yaml:/home/hc_user/.config/phylum/settings.yaml
+</code></pre>
+<h3 id="docker-environment">docker environment</h3>
+<pre><code class="language-bash">#
+# *required* for OSSF scorecard, criticality_score, and OSS-P4/R use of GitHub API
+#
+  -e GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN}
+#
+# *required* for hipcheck
+#
+  -e HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}
+#
+# *required* Confluence API Token for read/write access to Confluence Server
+#
+  -e CONF_PAT=${CONF_PAT}
+#
+# *optional* over-ride of Confluence Server address in localizations
+#
+  -e _LOCAL_CONFSVR=https://confluence.example.com
+</code></pre>
+<h2 id="example-setup">Example Setup</h2>
+<pre><code class="language-bash">#
+# make working volume folder and cache folders
+#
+export P4WKG=&quot;${HOME}/p4wkg&quot;
+
+mkdir -p &quot;${P4WKG}&quot;/cache/grype &quot;${P4WKG}&quot;/cache/hipcheck
+sudo chown -R 1001:1001 &quot;${P4WKG}&quot;
+
+#
+# confirm docker build
+#
+$ docker run --rm cmu-sei/scir-oss:prod analyze -V
+Version: pubRel 250516evie (branch: publicRelease)
+
+$ docker run --rm -e _LOCAL_CONFSVR=https://confluence.example.com cmu-sei/scir-oss:prod publish -V
+Version: pubRel 250417a (branch: publicRelease) for Server at https://confluence.example.com
+
+#
+# pre-build grype cache
+#
+$ docker run --rm --entrypoint=/home/hc_user/.local/bin/grype cmu-sei/scir-oss:prod --version
+grype 0.92.2
+
+$ docker run --rm -v &quot;${P4WKG}&quot;/cache/grype:/home/hc_user/.cache/grype -v &quot;${P4WKG}&quot;/cache/hipcheck:/home/hc_user/.cache/hipcheck --entrypoint=/home/hc_user/.local/bin/grype cmu-sei/scir-oss:prod db update
+Vulnerability database updated to latest version!
+
+$ docker run --rm -v &quot;${P4WKG}&quot;/cache/grype:/home/hc_user/.cache/grype -v &quot;${P4WKG}&quot;/cache/hipcheck:/home/hc_user/.cache/hipcheck -e GRYPE_DB_VALIDATE_AGE=false --entrypoint=/home/hc_user/.local/bin/grype cmu-sei/scir-oss:prod db status -o json
+{
+ &quot;schemaVersion&quot;: &quot;v6.0.2&quot;,
+ &quot;from&quot;: &quot;https://grype.anchore.io/databases/v6/vulnerability-db_v6.0.2_2025-06-04T01:32:23Z_1749035557.tar.zst?checksum=sha256%3A77238f4ffbc7cf72bf4dedabbb21a3d0dd3ade90fb5d9df7c4da2870f8d1a9b7&quot;,
+ &quot;built&quot;: &quot;2025-06-04T11:12:37Z&quot;,
+ &quot;path&quot;: &quot;/home/hc_user/.cache/grype/db/6/vulnerability.db&quot;,
+ &quot;valid&quot;: true
+}
+
+</code></pre>
+<h2 id="example-analyze-scir-oss">Example Analyze (SCIR-OSS)</h2>
+<pre><code class="language-bash">$ docker run --rm \
+  -e GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN} \
+  -e HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN} \
+  -v &quot;${P4WKG}&quot;:/app/oss-p4r \
+  -v &quot;${P4WKG}&quot;/cache/grype:/home/hc_user/.cache/grype \
+  -v &quot;${P4WKG}&quot;/cache/hipcheck:/home/hc_user/.cache/hipcheck \
+  -v /dev/null:/home/hc_user/.config/phylum/settings.yaml \
+  cmu-sei/scir-oss:prod analyze -l -v -C oparest -G go-training/opa-restful -P github:sbom
+</code></pre>
+<h2 id="example-publish-pub-scir">Example Publish (PUB-SCIR)</h2>
+<pre><code class="language-bash">$ docker run --rm \
+  -e _LOCAL_CONFSVR=https://confluence.example.com \
+  -e CONF_PAT=${CONF_PAT} \
+  -e GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN} \
+  -e HC_GITHUB_TOKEN=${GITHUB_AUTH_TOKEN}   \
+  -v &quot;${P4WKG}&quot;:/app/oss-p4r \
+  cmu-sei/scir-oss:prod publish -l -v -C oparest -T 'OPA Rest API SBOM' -S MYDOCS -A 'OSS-P4/R Reports'
+</code></pre>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../README-results/" class="btn btn-neutral float-left" title="Results"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/cmu-sei/scir-oss" class="fa fa-code-fork" style="color: #fcfcfc"> OSS-P4/R Documentation</a>
+        </span>
+    
+    
+      <span><a href="../README-results/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

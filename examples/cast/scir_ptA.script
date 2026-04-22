@@ -1,0 +1,5 @@
+# specify
+#   local working directory (-C <dirname>)
+#   GitHub Project (-G <:owner:repo>), and 
+#   SBOM to be used (-P <specification>) (this example fetches the SBOM from GitHub)
+../../../scir-oss.sh analyze -l -v -C oparest -G go-training/opa-restful -P github:sbom 
