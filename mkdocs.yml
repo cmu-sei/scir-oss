@@ -1,0 +1,16 @@
+site_name: OSS-P4/R Documentation
+site_url: https://cmu-sei.github.io/scir-oss
+site_dir: public
+repo_name: OSS-P4/R Documentation
+repo_url: https://github.com/cmu-sei/scir-oss
+edit_uri: edit/main/docs
+
+theme:
+  name: readthedocs
+
+nav:
+  - Home: index.md
+  - Installing: manuals/README-install.md
+  - Running: manuals/README-running.md
+  - Results: manuals/README-results.md
+  - Using Docker: manuals/README-docker.md

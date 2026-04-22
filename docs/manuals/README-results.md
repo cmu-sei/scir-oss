@@ -27,9 +27,9 @@ Generally speaking, the following thresholds apply:
 ### Iconography
 The report uses two icons for readers to quickly identify issues with the report:
 
-![Error](/docs/assets/error.svg) The error icon indicates a finding that the report reader needs to respond to.
+![Error](../assets/error.svg) The error icon indicates a finding that the report reader needs to respond to.
 
-![Warning](/docs/assets/warning.svg) The warning icon indicates that an error with the tool(s) was encountered.
+![Warning](../assets/warning.svg) The warning icon indicates that an error with the tool(s) was encountered.
 If you believe the error is substantive (e.g. something that shouldn't have happended), report the issue to the
 OSS-P4/R maintainers.
 
@@ -69,7 +69,7 @@ Basic information about the project under analysis including the project name, r
 extracted from the project repository as well as the date the report was generated (current as of). Links to the
 detailed sections at the end of the report are also included.
 
-![OSS-P4/R Report Overview](/docs/assets/oss-p4r%20report%20overview.png)
+![OSS-P4/R Report Overview](../assets/oss-p4r%20report%20overview.png)
 
 ## Scores at a Glance
 The project's scores are broken down and aligned in two ways.
@@ -82,7 +82,7 @@ for each category as well as broken down by tool within each alignment. These ma
 teams and leadership to quickly focus in on areas of strength and weakness for the project as well
 as identify the tools that generated each (sub-)score for later analysis.
 
-![OSS-P4/R Scores at a Glance](/docs/assets/oss-pr4%20score%20overview.png)
+![OSS-P4/R Scores at a Glance](../assets/oss-pr4%20score%20overview.png)
 
 Scores are color-coded according to the thresholds established.
 
@@ -91,7 +91,7 @@ Following the DoD CIO Criteria alignment is the summary table of aggregate score
 as well as a break-out of factors contributing to the score aligned to the DoD CIO criteria areas. 
 Each factor is summaried as:
 
-[ ![Error](/docs/assets/error.svg) / ![Warning](/docs/assets/warning.svg) ] _Check Name_ (_Check Score_ / _Check Threshold_ )
+[ ![Error](../assets/error.svg) / ![Warning](../assets/warning.svg) ] _Check Name_ (_Check Score_ / _Check Threshold_ )
 
 Icons indicate factors that fell below threshold or were unable to be determined, respectively. 
 Factors above threshold present no icon. Factors that fall below threshold must be investigated and 
@@ -100,7 +100,7 @@ findings validated by the team. Valid findings should be prioritized for risk de
 Each factor score is a composite of individual checks performed by each tool. The checks performed are
 reported in detail in the following section.
 
-![OSS-P4/R Scores by Tool](/docs/assets/oss-p4r%20summary%20findings.png)
+![OSS-P4/R Scores by Tool](../assets/oss-p4r%20summary%20findings.png)
 
 ## Contributing Factors
 Each composite sub-score is calculated based on various _checks_ performed by each tool. This section
@@ -113,7 +113,7 @@ so that project owners can focus down on the specific areas of concern and ident
 causes for concern. Tools can be added to OSS-P4/R and mapped to this lexicon, as well as expand
 the lexicon in future revisions of the tool.
 
-![OSS-P4/R Example Security Checks Detail](/docs/assets/oss-p4r%20check%20details.png)
+![OSS-P4/R Example Security Checks Detail](../assets/oss-p4r%20check%20details.png)
 
 **Some checks are currently reported as _Manual_ and cannot be determined by OSS-P4/R at this time.** 
 If the risk assessor requires an answer to _Manual_ checks then a human must obtain the information
@@ -217,14 +217,14 @@ impacts of those vulnerabilities, however the risk that those mitigations prove 
 as the number of mitigations increases. It is better for teams to avoid using dependencies with known 
 vulnerabilities and they are encouraged to update dependencies to newer versions on a regular basis.
 
-![OSS-P4/R Example Vulnerability Finding](/docs/assets/oss-p4r%20example%20cve.png)
+![OSS-P4/R Example Vulnerability Finding](../assets/oss-p4r%20example%20cve.png)
 
 ### Malicious Code Risk
 The malicious code risk section details out findings that _may_ be actually malicious or could be used
 for malicious purposes if implemented improperty or not protected appropriately. Each finding should
 be reviewed for applicability to the project.
 
-![OSS-P4/R Example Typosquatting Finding](/docs/assets/oss-p4r%20example%20typosquat.png)
+![OSS-P4/R Example Typosquatting Finding](../assets/oss-p4r%20example%20typosquat.png)
 
 ### Engineering Risk
 The engineering risk section details out findings of instances that _may_ indicate poor engineering
@@ -242,4 +242,4 @@ project and its dependencies. Not all findings are impactful, rather they _could
 depending on how the project uses the dependency. Each finding should be reviewed to determine
 whether or not it impacts the project.
 
-![OSS-P4/R Example License Finding](/docs/assets/oss-p4r%20example%20license%20finding.png)
+![OSS-P4/R Example License Finding](../assets/oss-p4r%20example%20license%20finding.png)

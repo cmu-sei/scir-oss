@@ -1,6 +1,6 @@
 # OSS-P4/R Installation
 
-## Prerequists
+## Prerequisites
 
 ```
 bash (version >= 5.0)
